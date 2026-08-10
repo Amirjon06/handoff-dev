@@ -1,8 +1,12 @@
 # StateRelay
 
-Continue a development workspace on another computer exactly where you stopped.
+Cross-platform developer workspace handoff.
 
-StateRelay is a cross-platform workspace handoff tool for developers. Instead of syncing only committed files, it captures enough context to rebuild your working environment on another machine:
+StateRelay lets you continue coding on another computer exactly where you stopped. The GitHub repository is named `handoff-dev`, while the product itself is called StateRelay.
+
+## What It Does
+
+StateRelay captures enough development context from one machine to recreate that workspace on another machine:
 
 - Git repository, remote, branch, and commit
 - Open editor files and cursor positions
@@ -10,18 +14,27 @@ StateRelay is a cross-platform workspace handoff tool for developers. Instead of
 - Browser tabs
 - Terminal working directories
 
-The first implementation milestone is intentionally small:
+The goal is simple:
 
-```bash
-relay capture --path /path/to/project --out session.json
-relay restore session.json
+```text
+MacBook
+  |
+  | relay send desktop
+  v
+Windows Desktop
+
+same repo
+same branch
+same files
+same cursor positions
+same unfinished work
 ```
 
-This repository starts with the product definition and roadmap first. The code should grow in small, reviewable milestones so the Git history shows how StateRelay was actually built.
+## Why It Exists
 
-## Why Build This
+Developers who use multiple computers waste time rebuilding context every time they switch machines.
 
-People who use multiple computers often waste time rebuilding context:
+For example, moving from a laptop to a desktop often means manually:
 
 - finding the right repo
 - checking out the right branch
@@ -30,7 +43,7 @@ People who use multiple computers often waste time rebuilding context:
 - reopening docs and local app tabs
 - moving uncommitted changes carefully
 
-Git handles versioned source code well, but it does not preserve the surrounding development state. StateRelay fills that gap.
+Git handles committed source code well, but it does not preserve the surrounding development state. StateRelay fills that gap.
 
 Think of it as Apple Handoff for developers, but across macOS, Windows, and Linux.
 
@@ -48,7 +61,30 @@ Think of it as Apple Handoff for developers, but across macOS, Windows, and Linu
 | Discovery | mDNS | Find nearby devices without typing IPs |
 | Security | TLS + device pairing | Protect source code and trusted-device identity |
 
-## Planned Commands
+## Installation
+
+StateRelay is in early development and is not packaged yet.
+
+For now, build it from source:
+
+```bash
+git clone https://github.com/amirjonabdunayimov/handoff-dev.git
+cd handoff-dev
+go test ./...
+go run ./cmd/relay version
+```
+
+Later releases should provide easier installation through package managers or install scripts.
+
+## Usage
+
+Current command:
+
+```bash
+go run ./cmd/relay version
+```
+
+Planned commands:
 
 ```bash
 relay capture [--path PATH] [--out FILE] [--pretty]
@@ -56,7 +92,7 @@ relay restore SESSION_FILE
 relay version
 ```
 
-Example capture output:
+Planned capture example:
 
 ```json
 {
@@ -83,6 +119,10 @@ Example capture output:
   }
 }
 ```
+
+## Development Status
+
+This repository is being built step by step. The early commits intentionally start with the problem statement, architecture, and a minimal Go CLI before adding capture, restore, networking, and editor integration.
 
 ## Roadmap
 
@@ -117,3 +157,7 @@ extensions/vscode/  Future VS Code extension
 extensions/browser/ Future browser extension
 docs/               Architecture and roadmap notes
 ```
+
+## License
+
+StateRelay is licensed under the MIT License. See [LICENSE](LICENSE).
