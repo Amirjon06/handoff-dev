@@ -60,3 +60,32 @@ func TestRootReturnsHelpfulErrorOutsideRepo(t *testing.T) {
 		t.Fatalf("error = %q", got)
 	}
 }
+
+func TestBranchReturnsCurrentBranch(t *testing.T) {
+	runner := &fakeRunner{output: "main"}
+
+	got, err := branch(context.Background(), runner, "/repo")
+	if err != nil {
+		t.Fatalf("branch returned error: %v", err)
+	}
+
+	if got != "main" {
+		t.Fatalf("branch = %q, want main", got)
+	}
+	if got := runner.calls[0]; got != "/repo [branch --show-current]" {
+		t.Fatalf("git call = %q, want branch command", got)
+	}
+}
+
+func TestBranchReportsDetachedHead(t *testing.T) {
+	runner := &fakeRunner{output: ""}
+
+	_, err := branch(context.Background(), runner, "/repo")
+	if err == nil {
+		t.Fatal("branch returned nil error for detached HEAD")
+	}
+
+	if got := err.Error(); got != "repository is in detached HEAD state" {
+		t.Fatalf("error = %q", got)
+	}
+}

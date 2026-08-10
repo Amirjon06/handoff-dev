@@ -40,6 +40,10 @@ func Root(ctx context.Context, path string) (string, error) {
 	return root(ctx, gitRunner{}, path)
 }
 
+func Branch(ctx context.Context, path string) (string, error) {
+	return branch(ctx, gitRunner{}, path)
+}
+
 func root(ctx context.Context, runner commandRunner, path string) (string, error) {
 	if path == "" {
 		path = "."
@@ -56,4 +60,20 @@ func root(ctx context.Context, runner commandRunner, path string) (string, error
 	}
 
 	return absoluteRoot, nil
+}
+
+func branch(ctx context.Context, runner commandRunner, path string) (string, error) {
+	if path == "" {
+		path = "."
+	}
+
+	currentBranch, err := runner.Run(ctx, path, "branch", "--show-current")
+	if err != nil {
+		return "", fmt.Errorf("read current git branch: %w", err)
+	}
+	if currentBranch == "" {
+		return "", errors.New("repository is in detached HEAD state")
+	}
+
+	return currentBranch, nil
 }
