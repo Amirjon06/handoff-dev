@@ -1,0 +1,11 @@
+.DS_Store
+relay
+dist/
+build/
+coverage/
+*.test
+*.out
+session.json
+staterelay.db
+node_modules/
+.vscode-test/
