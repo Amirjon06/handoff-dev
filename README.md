@@ -85,6 +85,7 @@ go run ./cmd/relay version
 go run ./cmd/relay capture --path .
 go run ./cmd/relay capture --path . --json
 go run ./cmd/relay capture --path . --out session.json
+go run ./cmd/relay restore session.json
 ```
 
 Current capture output includes the Git repository root, origin remote, active branch, and current commit. Use `--json` to produce the first StateRelay session artifact.

@@ -30,6 +30,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	switch args[0] {
 	case "capture":
 		return runCapture(ctx, args[1:], stdout)
+	case "restore":
+		return runRestore(args[1:], stdout)
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return nil
@@ -90,10 +92,42 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
+func runRestore(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("restore", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if fs.NArg() != 1 {
+		return fmt.Errorf("restore requires a session JSON file")
+	}
+
+	file, err := os.Open(fs.Arg(0))
+	if err != nil {
+		return fmt.Errorf("open %s: %w", fs.Arg(0), err)
+	}
+	defer file.Close()
+
+	captured, err := session.ReadJSON(file)
+	if err != nil {
+		return fmt.Errorf("read session: %w", err)
+	}
+
+	fmt.Fprintln(stdout, "Restore plan")
+	fmt.Fprintf(stdout, "Git root: %s\n", captured.Git.Root)
+	fmt.Fprintf(stdout, "Git remote: %s\n", captured.Git.Remote)
+	fmt.Fprintf(stdout, "Git branch: %s\n", captured.Git.Branch)
+	fmt.Fprintf(stdout, "Git commit: %s\n", captured.Git.Commit)
+	return nil
+}
+
 func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "StateRelay")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  relay capture [--path PATH] [--json] [--out FILE]")
+	fmt.Fprintln(w, "  relay restore SESSION_FILE")
 	fmt.Fprintln(w, "  relay version")
 }
