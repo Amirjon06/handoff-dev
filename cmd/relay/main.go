@@ -47,6 +47,7 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 
 	path := fs.String("path", ".", "project path to inspect")
 	jsonOutput := fs.Bool("json", false, "write captured session as JSON")
+	out := fs.String("out", "", "write captured session JSON to this file")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -57,12 +58,29 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	if *jsonOutput {
+	if *jsonOutput || *out != "" {
 		hostname, err := os.Hostname()
 		if err != nil {
 			hostname = "unknown"
 		}
-		return session.WriteJSON(stdout, session.New(hostname, state, time.Now()))
+		captured := session.New(hostname, state, time.Now())
+
+		if *out == "" {
+			return session.WriteJSON(stdout, captured)
+		}
+
+		file, err := os.Create(*out)
+		if err != nil {
+			return fmt.Errorf("create %s: %w", *out, err)
+		}
+		defer file.Close()
+
+		if err := session.WriteJSON(file, captured); err != nil {
+			return fmt.Errorf("write %s: %w", *out, err)
+		}
+
+		fmt.Fprintf(stdout, "Captured session to %s\n", *out)
+		return nil
 	}
 
 	fmt.Fprintf(stdout, "Git root: %s\n", state.Root)
@@ -76,6 +94,6 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "StateRelay")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  relay capture [--path PATH] [--json]")
+	fmt.Fprintln(w, "  relay capture [--path PATH] [--json] [--out FILE]")
 	fmt.Fprintln(w, "  relay version")
 }
