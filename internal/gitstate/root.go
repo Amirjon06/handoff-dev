@@ -16,6 +16,13 @@ type commandRunner interface {
 
 type gitRunner struct{}
 
+type State struct {
+	Root   string
+	Remote string
+	Branch string
+	Commit string
+}
+
 func (gitRunner) Run(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
@@ -50,6 +57,39 @@ func Commit(ctx context.Context, path string) (string, error) {
 
 func Remote(ctx context.Context, path string) (string, error) {
 	return remote(ctx, gitRunner{}, path)
+}
+
+func Capture(ctx context.Context, path string) (State, error) {
+	return capture(ctx, gitRunner{}, path)
+}
+
+func capture(ctx context.Context, runner commandRunner, path string) (State, error) {
+	root, err := root(ctx, runner, path)
+	if err != nil {
+		return State{}, err
+	}
+
+	remote, err := remote(ctx, runner, root)
+	if err != nil {
+		return State{}, err
+	}
+
+	branch, err := branch(ctx, runner, root)
+	if err != nil {
+		return State{}, err
+	}
+
+	commit, err := commit(ctx, runner, root)
+	if err != nil {
+		return State{}, err
+	}
+
+	return State{
+		Root:   root,
+		Remote: remote,
+		Branch: branch,
+		Commit: commit,
+	}, nil
 }
 
 func root(ctx context.Context, runner commandRunner, path string) (string, error) {

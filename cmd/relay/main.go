@@ -49,30 +49,15 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	root, err := gitstate.Root(ctx, *path)
+	state, err := gitstate.Capture(ctx, *path)
 	if err != nil {
 		return err
 	}
 
-	branch, err := gitstate.Branch(ctx, root)
-	if err != nil {
-		return err
-	}
-
-	commit, err := gitstate.Commit(ctx, root)
-	if err != nil {
-		return err
-	}
-
-	remote, err := gitstate.Remote(ctx, root)
-	if err != nil {
-		return err
-	}
-
-	fmt.Fprintf(stdout, "Git root: %s\n", root)
-	fmt.Fprintf(stdout, "Git remote: %s\n", remote)
-	fmt.Fprintf(stdout, "Git branch: %s\n", branch)
-	fmt.Fprintf(stdout, "Git commit: %s\n", commit)
+	fmt.Fprintf(stdout, "Git root: %s\n", state.Root)
+	fmt.Fprintf(stdout, "Git remote: %s\n", state.Remote)
+	fmt.Fprintf(stdout, "Git branch: %s\n", state.Branch)
+	fmt.Fprintf(stdout, "Git commit: %s\n", state.Commit)
 	return nil
 }
 

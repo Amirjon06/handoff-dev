@@ -8,13 +8,26 @@ import (
 )
 
 type fakeRunner struct {
-	output string
-	err    error
-	calls  []string
+	output  string
+	err     error
+	calls   []string
+	outputs map[string]string
+	errors  map[string]error
 }
 
 func (f *fakeRunner) Run(_ context.Context, dir string, args ...string) (string, error) {
-	f.calls = append(f.calls, fmt.Sprintf("%s %v", dir, args))
+	call := fmt.Sprintf("%s %v", dir, args)
+	f.calls = append(f.calls, call)
+	if f.errors != nil {
+		if err, ok := f.errors[call]; ok {
+			return "", err
+		}
+	}
+	if f.outputs != nil {
+		if output, ok := f.outputs[call]; ok {
+			return output, nil
+		}
+	}
 	return f.output, f.err
 }
 
@@ -158,5 +171,35 @@ func TestRemoteReturnsHelpfulError(t *testing.T) {
 
 	if got := err.Error(); got != "read git origin remote: exit status 1" {
 		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestCaptureReturnsGitState(t *testing.T) {
+	expectedRoot := t.TempDir()
+	runner := &fakeRunner{
+		outputs: map[string]string{
+			". [rev-parse --show-toplevel]":                    expectedRoot,
+			expectedRoot + " [config --get remote.origin.url]": "https://github.com/Amirjon06/handoff-dev.git",
+			expectedRoot + " [branch --show-current]":          "main",
+			expectedRoot + " [rev-parse HEAD]":                 "faaf307bf4fa86c316586804bf88f3096511aabd",
+		},
+	}
+
+	got, err := capture(context.Background(), runner, "")
+	if err != nil {
+		t.Fatalf("capture returned error: %v", err)
+	}
+
+	if got.Root != expectedRoot {
+		t.Fatalf("root = %q, want %q", got.Root, expectedRoot)
+	}
+	if got.Remote != "https://github.com/Amirjon06/handoff-dev.git" {
+		t.Fatalf("remote = %q", got.Remote)
+	}
+	if got.Branch != "main" {
+		t.Fatalf("branch = %q", got.Branch)
+	}
+	if got.Commit != "faaf307bf4fa86c316586804bf88f3096511aabd" {
+		t.Fatalf("commit = %q", got.Commit)
 	}
 }
