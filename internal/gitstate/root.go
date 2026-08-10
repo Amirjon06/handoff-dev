@@ -48,6 +48,10 @@ func Commit(ctx context.Context, path string) (string, error) {
 	return commit(ctx, gitRunner{}, path)
 }
 
+func Remote(ctx context.Context, path string) (string, error) {
+	return remote(ctx, gitRunner{}, path)
+}
+
 func root(ctx context.Context, runner commandRunner, path string) (string, error) {
 	if path == "" {
 		path = "."
@@ -93,4 +97,20 @@ func commit(ctx context.Context, runner commandRunner, path string) (string, err
 	}
 
 	return currentCommit, nil
+}
+
+func remote(ctx context.Context, runner commandRunner, path string) (string, error) {
+	if path == "" {
+		path = "."
+	}
+
+	origin, err := runner.Run(ctx, path, "config", "--get", "remote.origin.url")
+	if err != nil {
+		return "", fmt.Errorf("read git origin remote: %w", err)
+	}
+	if origin == "" {
+		return "", errors.New("repository has no origin remote")
+	}
+
+	return origin, nil
 }

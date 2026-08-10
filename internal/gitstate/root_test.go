@@ -118,3 +118,45 @@ func TestCommitReturnsHelpfulError(t *testing.T) {
 		t.Fatalf("error = %q", got)
 	}
 }
+
+func TestRemoteReturnsOriginURL(t *testing.T) {
+	runner := &fakeRunner{output: "https://github.com/Amirjon06/handoff-dev.git"}
+
+	got, err := remote(context.Background(), runner, "/repo")
+	if err != nil {
+		t.Fatalf("remote returned error: %v", err)
+	}
+
+	if got != "https://github.com/Amirjon06/handoff-dev.git" {
+		t.Fatalf("remote = %q", got)
+	}
+	if got := runner.calls[0]; got != "/repo [config --get remote.origin.url]" {
+		t.Fatalf("git call = %q, want remote command", got)
+	}
+}
+
+func TestRemoteReportsMissingOrigin(t *testing.T) {
+	runner := &fakeRunner{output: ""}
+
+	_, err := remote(context.Background(), runner, "/repo")
+	if err == nil {
+		t.Fatal("remote returned nil error for missing origin")
+	}
+
+	if got := err.Error(); got != "repository has no origin remote" {
+		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestRemoteReturnsHelpfulError(t *testing.T) {
+	runner := &fakeRunner{err: errors.New("exit status 1")}
+
+	_, err := remote(context.Background(), runner, "/repo")
+	if err == nil {
+		t.Fatal("remote returned nil error")
+	}
+
+	if got := err.Error(); got != "read git origin remote: exit status 1" {
+		t.Fatalf("error = %q", got)
+	}
+}
