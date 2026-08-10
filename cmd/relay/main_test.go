@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 )
@@ -9,7 +10,7 @@ import (
 func TestVersionCommand(t *testing.T) {
 	var stdout bytes.Buffer
 
-	err := run([]string{"version"}, &stdout)
+	err := run(context.Background(), []string{"version"}, &stdout)
 	if err != nil {
 		t.Fatalf("run returned error: %v", err)
 	}
@@ -22,7 +23,7 @@ func TestVersionCommand(t *testing.T) {
 func TestUnknownCommand(t *testing.T) {
 	var stdout bytes.Buffer
 
-	err := run([]string{"nope"}, &stdout)
+	err := run(context.Background(), []string{"nope"}, &stdout)
 	if err == nil {
 		t.Fatal("run returned nil error for unknown command")
 	}

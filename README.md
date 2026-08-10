@@ -82,6 +82,7 @@ Current command:
 
 ```bash
 go run ./cmd/relay version
+go run ./cmd/relay capture --path .
 ```
 
 Planned commands:
