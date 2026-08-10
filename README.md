@@ -68,7 +68,7 @@ StateRelay is in early development and is not packaged yet.
 For now, build it from source:
 
 ```bash
-git clone https://github.com/amirjonabdunayimov/handoff-dev.git
+git clone https://github.com/Amirjon06/handoff-dev.git
 cd handoff-dev
 go test ./...
 go run ./cmd/relay version
