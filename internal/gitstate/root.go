@@ -17,10 +17,10 @@ type commandRunner interface {
 type gitRunner struct{}
 
 type State struct {
-	Root   string
-	Remote string
-	Branch string
-	Commit string
+	Root   string `json:"root"`
+	Remote string `json:"remote"`
+	Branch string `json:"branch"`
+	Commit string `json:"commit"`
 }
 
 func (gitRunner) Run(ctx context.Context, dir string, args ...string) (string, error) {

@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
+	"github.com/Amirjon06/handoff-dev/internal/session"
 )
 
 const version = "0.1.0-dev"
@@ -44,6 +46,7 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 	fs.SetOutput(io.Discard)
 
 	path := fs.String("path", ".", "project path to inspect")
+	jsonOutput := fs.Bool("json", false, "write captured session as JSON")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -52,6 +55,14 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 	state, err := gitstate.Capture(ctx, *path)
 	if err != nil {
 		return err
+	}
+
+	if *jsonOutput {
+		hostname, err := os.Hostname()
+		if err != nil {
+			hostname = "unknown"
+		}
+		return session.WriteJSON(stdout, session.New(hostname, state, time.Now()))
 	}
 
 	fmt.Fprintf(stdout, "Git root: %s\n", state.Root)
@@ -65,6 +76,6 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "StateRelay")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  relay capture [--path PATH]")
+	fmt.Fprintln(w, "  relay capture [--path PATH] [--json]")
 	fmt.Fprintln(w, "  relay version")
 }

@@ -83,14 +83,16 @@ Current command:
 ```bash
 go run ./cmd/relay version
 go run ./cmd/relay capture --path .
+go run ./cmd/relay capture --path . --json
 ```
 
-Current capture output includes the Git repository root, origin remote, active branch, and current commit.
+Current capture output includes the Git repository root, origin remote, active branch, and current commit. Use `--json` to produce the first StateRelay session artifact.
 
 Planned commands:
 
 ```bash
-relay capture [--path PATH] [--out FILE] [--pretty]
+relay capture [--path PATH] [--json]
+relay capture [--path PATH] [--out FILE]
 relay restore SESSION_FILE
 relay version
 ```
@@ -107,18 +109,10 @@ Planned capture example:
     "arch": "arm64"
   },
   "git": {
-    "repository": "GhostMirror",
     "remote": "git@github.com:amir/GhostMirror.git",
     "branch": "feature-login",
     "commit": "3b8e9f1...",
-    "path": "/Users/amir/projects/GhostMirror",
-    "dirty": true,
-    "changed_files": [
-      {
-        "path": "main.py",
-        "status": "modified"
-      }
-    ]
+    "root": "/Users/amir/projects/GhostMirror"
   }
 }
 ```
