@@ -59,8 +59,14 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
+	commit, err := gitstate.Commit(ctx, root)
+	if err != nil {
+		return err
+	}
+
 	fmt.Fprintf(stdout, "Git root: %s\n", root)
 	fmt.Fprintf(stdout, "Git branch: %s\n", branch)
+	fmt.Fprintf(stdout, "Git commit: %s\n", commit)
 	return nil
 }
 

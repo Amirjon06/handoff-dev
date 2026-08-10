@@ -85,7 +85,7 @@ go run ./cmd/relay version
 go run ./cmd/relay capture --path .
 ```
 
-Current capture output includes the Git repository root and active branch.
+Current capture output includes the Git repository root, active branch, and current commit.
 
 Planned commands:
 

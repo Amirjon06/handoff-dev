@@ -44,6 +44,10 @@ func Branch(ctx context.Context, path string) (string, error) {
 	return branch(ctx, gitRunner{}, path)
 }
 
+func Commit(ctx context.Context, path string) (string, error) {
+	return commit(ctx, gitRunner{}, path)
+}
+
 func root(ctx context.Context, runner commandRunner, path string) (string, error) {
 	if path == "" {
 		path = "."
@@ -76,4 +80,17 @@ func branch(ctx context.Context, runner commandRunner, path string) (string, err
 	}
 
 	return currentBranch, nil
+}
+
+func commit(ctx context.Context, runner commandRunner, path string) (string, error) {
+	if path == "" {
+		path = "."
+	}
+
+	currentCommit, err := runner.Run(ctx, path, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("read current git commit: %w", err)
+	}
+
+	return currentCommit, nil
 }

@@ -89,3 +89,32 @@ func TestBranchReportsDetachedHead(t *testing.T) {
 		t.Fatalf("error = %q", got)
 	}
 }
+
+func TestCommitReturnsCurrentCommit(t *testing.T) {
+	runner := &fakeRunner{output: "24c5116f2f2d5f51e0f9a6b9f0f7670634dbabcd"}
+
+	got, err := commit(context.Background(), runner, "/repo")
+	if err != nil {
+		t.Fatalf("commit returned error: %v", err)
+	}
+
+	if got != "24c5116f2f2d5f51e0f9a6b9f0f7670634dbabcd" {
+		t.Fatalf("commit = %q", got)
+	}
+	if got := runner.calls[0]; got != "/repo [rev-parse HEAD]" {
+		t.Fatalf("git call = %q, want commit command", got)
+	}
+}
+
+func TestCommitReturnsHelpfulError(t *testing.T) {
+	runner := &fakeRunner{err: errors.New("fatal: bad revision HEAD")}
+
+	_, err := commit(context.Background(), runner, "/repo")
+	if err == nil {
+		t.Fatal("commit returned nil error")
+	}
+
+	if got := err.Error(); got != "read current git commit: fatal: bad revision HEAD" {
+		t.Fatalf("error = %q", got)
+	}
+}
