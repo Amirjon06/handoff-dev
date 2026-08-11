@@ -67,7 +67,23 @@ func TestCaptureJSONIncludesChangedFiles(t *testing.T) {
 
 func TestRestorePrintsPlan(t *testing.T) {
 	repoRoot, commit := initGitRepo(t)
-	path := writeTestSession(t, repoRoot, commit)
+	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+		Root:   repoRoot,
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+		Dirty:  true,
+		ChangedFiles: []gitstate.ChangedFile{
+			{
+				Path:            "README.md",
+				Status:          "modified",
+				Size:            11,
+				ContentCaptured: true,
+				ContentEncoding: "utf-8",
+				Content:         "# Changed\n",
+			},
+		},
+	})
 
 	var stdout bytes.Buffer
 	err := run(context.Background(), []string{"restore", path}, &stdout)
@@ -82,6 +98,9 @@ func TestRestorePrintsPlan(t *testing.T) {
 		"Git remote: https://github.com/Amirjon06/handoff-dev.git",
 		"Git branch: main",
 		"Git commit: " + commit,
+		"Git dirty: true",
+		"Changed files:",
+		"- modified README.md (11 bytes captured)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("restore output missing %q:\n%s", want, got)

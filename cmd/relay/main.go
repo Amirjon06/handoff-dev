@@ -148,6 +148,17 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	fmt.Fprintf(stdout, "Git remote: %s\n", captured.Git.Remote)
 	fmt.Fprintf(stdout, "Git branch: %s\n", captured.Git.Branch)
 	fmt.Fprintf(stdout, "Git commit: %s\n", captured.Git.Commit)
+	fmt.Fprintf(stdout, "Git dirty: %t\n", captured.Git.Dirty)
+	if len(captured.Git.ChangedFiles) > 0 {
+		fmt.Fprintln(stdout, "Changed files:")
+		for _, file := range captured.Git.ChangedFiles {
+			if file.ContentCaptured {
+				fmt.Fprintf(stdout, "- %s %s (%d bytes captured)\n", file.Status, file.Path, file.Size)
+				continue
+			}
+			fmt.Fprintf(stdout, "- %s %s (content not captured)\n", file.Status, file.Path)
+		}
+	}
 	return nil
 }
 
