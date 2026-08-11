@@ -114,7 +114,18 @@ Planned capture example:
     "remote": "git@github.com:amir/GhostMirror.git",
     "branch": "feature-login",
     "commit": "3b8e9f1...",
-    "root": "/Users/amir/projects/GhostMirror"
+    "root": "/Users/amir/projects/GhostMirror",
+    "dirty": true,
+    "changed_files": [
+      {
+        "path": "main.py",
+        "status": "modified"
+      },
+      {
+        "path": "notes.txt",
+        "status": "untracked"
+      }
+    ]
   }
 }
 ```

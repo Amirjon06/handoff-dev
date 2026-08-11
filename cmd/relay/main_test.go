@@ -35,6 +35,36 @@ func TestUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestCaptureJSONIncludesChangedFiles(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	if err := os.WriteFile(repoRoot+"/README.md", []byte("# Changed\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	if err := os.WriteFile(repoRoot+"/notes.txt", []byte("scratch\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"capture", "--path", repoRoot, "--json"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	captured, err := session.ReadJSON(strings.NewReader(stdout.String()))
+	if err != nil {
+		t.Fatalf("ReadJSON returned error: %v", err)
+	}
+
+	if !captured.Git.Dirty {
+		t.Fatal("dirty = false, want true")
+	}
+	if len(captured.Git.ChangedFiles) != 2 {
+		t.Fatalf("changed file count = %d, want 2", len(captured.Git.ChangedFiles))
+	}
+	assertChangedFile(t, captured.Git.ChangedFiles, "README.md", "modified")
+	assertChangedFile(t, captured.Git.ChangedFiles, "notes.txt", "untracked")
+}
+
 func TestRestorePrintsPlan(t *testing.T) {
 	repoRoot, commit := initGitRepo(t)
 	path := writeTestSession(t, repoRoot, commit)
@@ -129,6 +159,7 @@ func initGitRepo(t *testing.T) (string, string) {
 	runGit(t, dir, "init", "--initial-branch=main")
 	runGit(t, dir, "config", "user.name", "StateRelay Tests")
 	runGit(t, dir, "config", "user.email", "tests@staterelay.local")
+	runGit(t, dir, "remote", "add", "origin", "https://github.com/Amirjon06/handoff-dev.git")
 
 	if err := os.WriteFile(dir+"/README.md", []byte("# Test Repo\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
@@ -139,6 +170,18 @@ func initGitRepo(t *testing.T) (string, string) {
 	commit := strings.TrimSpace(runGit(t, dir, "rev-parse", "HEAD"))
 
 	return dir, commit
+}
+
+func assertChangedFile(t *testing.T, files []gitstate.ChangedFile, path string, status string) {
+	t.Helper()
+
+	for _, file := range files {
+		if file.Path == path && file.Status == status {
+			return
+		}
+	}
+
+	t.Fatalf("changed files %#v missing %s %s", files, status, path)
 }
 
 func runGit(t *testing.T, dir string, args ...string) string {
