@@ -182,6 +182,7 @@ func TestCaptureReturnsGitState(t *testing.T) {
 			expectedRoot + " [config --get remote.origin.url]": "https://github.com/Amirjon06/handoff-dev.git",
 			expectedRoot + " [branch --show-current]":          "main",
 			expectedRoot + " [rev-parse HEAD]":                 "faaf307bf4fa86c316586804bf88f3096511aabd",
+			expectedRoot + " [status --porcelain=v1]":          " M README.md\n?? notes.txt",
 		},
 	}
 
@@ -201,5 +202,43 @@ func TestCaptureReturnsGitState(t *testing.T) {
 	}
 	if got.Commit != "faaf307bf4fa86c316586804bf88f3096511aabd" {
 		t.Fatalf("commit = %q", got.Commit)
+	}
+	if !got.Dirty {
+		t.Fatal("dirty = false, want true")
+	}
+	if len(got.ChangedFiles) != 2 {
+		t.Fatalf("changed file count = %d, want 2", len(got.ChangedFiles))
+	}
+}
+
+func TestChangesReturnsCleanWorkingTree(t *testing.T) {
+	runner := &fakeRunner{output: ""}
+
+	got, err := changes(context.Background(), runner, "/repo")
+	if err != nil {
+		t.Fatalf("changes returned error: %v", err)
+	}
+
+	if len(got) != 0 {
+		t.Fatalf("changed files = %#v, want none", got)
+	}
+}
+
+func TestParseStatus(t *testing.T) {
+	got := parseStatus(" M README.md\nA  main.go\nR  old.go -> new.go\n?? scratch.txt")
+	want := []ChangedFile{
+		{Path: "README.md", Status: "modified"},
+		{Path: "main.go", Status: "added"},
+		{Path: "new.go", Status: "renamed"},
+		{Path: "scratch.txt", Status: "untracked"},
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("changed file count = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("changed file %d = %#v, want %#v", i, got[i], want[i])
+		}
 	}
 }

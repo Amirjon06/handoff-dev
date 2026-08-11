@@ -89,6 +89,10 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 	fmt.Fprintf(stdout, "Git remote: %s\n", state.Remote)
 	fmt.Fprintf(stdout, "Git branch: %s\n", state.Branch)
 	fmt.Fprintf(stdout, "Git commit: %s\n", state.Commit)
+	fmt.Fprintf(stdout, "Git dirty: %t\n", state.Dirty)
+	for _, file := range state.ChangedFiles {
+		fmt.Fprintf(stdout, "Changed file: %s %s\n", file.Status, file.Path)
+	}
 	return nil
 }
 

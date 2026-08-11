@@ -16,11 +16,18 @@ type commandRunner interface {
 
 type gitRunner struct{}
 
+type ChangedFile struct {
+	Path   string `json:"path"`
+	Status string `json:"status"`
+}
+
 type State struct {
-	Root   string `json:"root"`
-	Remote string `json:"remote"`
-	Branch string `json:"branch"`
-	Commit string `json:"commit"`
+	Root         string        `json:"root"`
+	Remote       string        `json:"remote"`
+	Branch       string        `json:"branch"`
+	Commit       string        `json:"commit"`
+	Dirty        bool          `json:"dirty"`
+	ChangedFiles []ChangedFile `json:"changed_files,omitempty"`
 }
 
 func (gitRunner) Run(ctx context.Context, dir string, args ...string) (string, error) {
@@ -40,7 +47,7 @@ func (gitRunner) Run(ctx context.Context, dir string, args ...string) (string, e
 		return "", errors.New(message)
 	}
 
-	return strings.TrimSpace(stdout.String()), nil
+	return strings.TrimRight(stdout.String(), "\r\n"), nil
 }
 
 func Root(ctx context.Context, path string) (string, error) {
@@ -84,11 +91,18 @@ func capture(ctx context.Context, runner commandRunner, path string) (State, err
 		return State{}, err
 	}
 
+	changedFiles, err := changes(ctx, runner, root)
+	if err != nil {
+		return State{}, err
+	}
+
 	return State{
-		Root:   root,
-		Remote: remote,
-		Branch: branch,
-		Commit: commit,
+		Root:         root,
+		Remote:       remote,
+		Branch:       branch,
+		Commit:       commit,
+		Dirty:        len(changedFiles) > 0,
+		ChangedFiles: changedFiles,
 	}, nil
 }
 
@@ -153,4 +167,66 @@ func remote(ctx context.Context, runner commandRunner, path string) (string, err
 	}
 
 	return origin, nil
+}
+
+func changes(ctx context.Context, runner commandRunner, path string) ([]ChangedFile, error) {
+	if path == "" {
+		path = "."
+	}
+
+	status, err := runner.Run(ctx, path, "status", "--porcelain=v1")
+	if err != nil {
+		return nil, fmt.Errorf("read git status: %w", err)
+	}
+
+	return parseStatus(status), nil
+}
+
+func parseStatus(status string) []ChangedFile {
+	status = strings.TrimRight(status, "\r\n")
+	if status == "" {
+		return nil
+	}
+
+	lines := strings.Split(status, "\n")
+	files := make([]ChangedFile, 0, len(lines))
+	for _, line := range lines {
+		if len(line) < 4 {
+			continue
+		}
+
+		code := strings.TrimSpace(line[:2])
+		path := strings.TrimSpace(line[3:])
+		if idx := strings.LastIndex(path, " -> "); idx >= 0 {
+			path = path[idx+4:]
+		}
+
+		files = append(files, ChangedFile{
+			Path:   path,
+			Status: statusName(code),
+		})
+	}
+
+	return files
+}
+
+func statusName(code string) string {
+	switch {
+	case code == "??":
+		return "untracked"
+	case strings.Contains(code, "A"):
+		return "added"
+	case strings.Contains(code, "D"):
+		return "deleted"
+	case strings.Contains(code, "R"):
+		return "renamed"
+	case strings.Contains(code, "C"):
+		return "copied"
+	case strings.Contains(code, "M"):
+		return "modified"
+	case strings.Contains(code, "U"):
+		return "unmerged"
+	default:
+		return strings.ToLower(code)
+	}
 }
