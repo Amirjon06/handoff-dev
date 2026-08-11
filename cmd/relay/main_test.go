@@ -36,8 +36,8 @@ func TestUnknownCommand(t *testing.T) {
 }
 
 func TestRestorePrintsPlan(t *testing.T) {
-	repoRoot := initGitRepo(t)
-	path := writeTestSession(t, repoRoot)
+	repoRoot, commit := initGitRepo(t)
+	path := writeTestSession(t, repoRoot, commit)
 
 	var stdout bytes.Buffer
 	err := run(context.Background(), []string{"restore", path}, &stdout)
@@ -51,7 +51,7 @@ func TestRestorePrintsPlan(t *testing.T) {
 		"Git root: " + repoRoot,
 		"Git remote: https://github.com/Amirjon06/handoff-dev.git",
 		"Git branch: main",
-		"Git commit: faaf307bf4fa86c316586804bf88f3096511aabd",
+		"Git commit: " + commit,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("restore output missing %q:\n%s", want, got)
@@ -60,7 +60,7 @@ func TestRestorePrintsPlan(t *testing.T) {
 }
 
 func TestRestoreRejectsMissingGitRoot(t *testing.T) {
-	path := writeTestSession(t, t.TempDir())
+	path := writeTestSession(t, t.TempDir(), "faaf307bf4fa86c316586804bf88f3096511aabd")
 
 	var stdout bytes.Buffer
 	err := run(context.Background(), []string{"restore", path}, &stdout)
@@ -74,12 +74,12 @@ func TestRestoreRejectsMissingGitRoot(t *testing.T) {
 }
 
 func TestRestoreRejectsBranchMismatch(t *testing.T) {
-	repoRoot := initGitRepo(t)
+	repoRoot, commit := initGitRepo(t)
 	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
 		Root:   repoRoot,
 		Remote: "https://github.com/Amirjon06/handoff-dev.git",
 		Branch: "feature/missing",
-		Commit: "faaf307bf4fa86c316586804bf88f3096511aabd",
+		Commit: commit,
 	})
 
 	var stdout bytes.Buffer
@@ -93,6 +93,26 @@ func TestRestoreRejectsBranchMismatch(t *testing.T) {
 	}
 }
 
+func TestRestoreRejectsCommitMismatch(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+		Root:   repoRoot,
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: "0000000000000000000000000000000000000000",
+	})
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"restore", path}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error for commit mismatch")
+	}
+
+	if !strings.Contains(err.Error(), "session commit 0000000000000000000000000000000000000000 does not match current commit") {
+		t.Fatalf("error = %q, want commit mismatch error", err.Error())
+	}
+}
+
 func TestRestoreRequiresSessionFile(t *testing.T) {
 	var stdout bytes.Buffer
 
@@ -102,26 +122,46 @@ func TestRestoreRequiresSessionFile(t *testing.T) {
 	}
 }
 
-func initGitRepo(t *testing.T) string {
+func initGitRepo(t *testing.T) (string, string) {
 	t.Helper()
 
 	dir := t.TempDir()
-	cmd := exec.Command("git", "init", "--initial-branch=main", dir)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git init returned error: %v\n%s", err, output)
+	runGit(t, dir, "init", "--initial-branch=main")
+	runGit(t, dir, "config", "user.name", "StateRelay Tests")
+	runGit(t, dir, "config", "user.email", "tests@staterelay.local")
+
+	if err := os.WriteFile(dir+"/README.md", []byte("# Test Repo\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	return dir
+	runGit(t, dir, "add", "README.md")
+	runGit(t, dir, "commit", "-m", "Initial commit")
+	commit := strings.TrimSpace(runGit(t, dir, "rev-parse", "HEAD"))
+
+	return dir, commit
 }
 
-func writeTestSession(t *testing.T, root string) string {
+func runGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v returned error: %v\n%s", args, err, output)
+	}
+
+	return string(output)
+}
+
+func writeTestSession(t *testing.T, root string, commit string) string {
 	t.Helper()
 
 	return writeTestSessionWithGit(t, root, gitstate.State{
 		Root:   root,
 		Remote: "https://github.com/Amirjon06/handoff-dev.git",
 		Branch: "main",
-		Commit: "faaf307bf4fa86c316586804bf88f3096511aabd",
+		Commit: commit,
 	})
 }
 

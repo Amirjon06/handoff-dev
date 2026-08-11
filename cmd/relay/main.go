@@ -131,6 +131,14 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("session branch %s does not match current branch %s", captured.Git.Branch, currentBranch)
 	}
 
+	currentCommit, err := gitstate.Commit(ctx, verifiedRoot)
+	if err != nil {
+		return fmt.Errorf("verify git commit: %w", err)
+	}
+	if currentCommit != captured.Git.Commit {
+		return fmt.Errorf("session commit %s does not match current commit %s", captured.Git.Commit, currentCommit)
+	}
+
 	fmt.Fprintln(stdout, "Restore plan")
 	fmt.Fprintf(stdout, "Git root: %s\n", captured.Git.Root)
 	fmt.Fprintf(stdout, "Git remote: %s\n", captured.Git.Remote)
