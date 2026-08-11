@@ -162,6 +162,77 @@ func TestRestoreRejectsCommitMismatch(t *testing.T) {
 	}
 }
 
+func TestRestoreApplyWritesCapturedFiles(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+		Root:   repoRoot,
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+		Dirty:  true,
+		ChangedFiles: []gitstate.ChangedFile{
+			{
+				Path:            "README.md",
+				Status:          "modified",
+				Size:            10,
+				ContentCaptured: true,
+				ContentEncoding: "utf-8",
+				Content:         "# Applied\n",
+			},
+		},
+	})
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"restore", "--apply", path}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	content, err := os.ReadFile(repoRoot + "/README.md")
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if string(content) != "# Applied\n" {
+		t.Fatalf("README content = %q", content)
+	}
+	if got := strings.TrimSpace(stdout.String()); got != "Applied 1 changed file(s)" {
+		t.Fatalf("stdout = %q", got)
+	}
+}
+
+func TestRestoreApplyRejectsDirtyWorkingTree(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	if err := os.WriteFile(repoRoot+"/README.md", []byte("# Local change\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+		Root:   repoRoot,
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+		Dirty:  true,
+		ChangedFiles: []gitstate.ChangedFile{
+			{
+				Path:            "README.md",
+				Status:          "modified",
+				Size:            10,
+				ContentCaptured: true,
+				ContentEncoding: "utf-8",
+				Content:         "# Applied\n",
+			},
+		},
+	})
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"restore", "--apply", path}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error for dirty working tree")
+	}
+	if !strings.Contains(err.Error(), "refusing to apply over dirty working tree") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestRestoreRequiresSessionFile(t *testing.T) {
 	var stdout bytes.Buffer
 

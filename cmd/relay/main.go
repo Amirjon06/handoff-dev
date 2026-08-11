@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
@@ -100,6 +102,8 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("restore", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 
+	apply := fs.Bool("apply", false, "write captured file snapshots after validation")
+
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -143,6 +147,21 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("session commit %s does not match current commit %s", captured.Git.Commit, currentCommit)
 	}
 
+	if *apply {
+		currentState, err := gitstate.Capture(ctx, verifiedRoot)
+		if err != nil {
+			return fmt.Errorf("verify working tree: %w", err)
+		}
+		if currentState.Dirty {
+			return fmt.Errorf("refusing to apply over dirty working tree")
+		}
+		if err := applyChangedFiles(verifiedRoot, captured.Git.ChangedFiles); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Applied %d changed file(s)\n", countCapturedFiles(captured.Git.ChangedFiles))
+		return nil
+	}
+
 	fmt.Fprintln(stdout, "Restore plan")
 	fmt.Fprintf(stdout, "Git root: %s\n", captured.Git.Root)
 	fmt.Fprintf(stdout, "Git remote: %s\n", captured.Git.Remote)
@@ -162,6 +181,45 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
+func applyChangedFiles(root string, files []gitstate.ChangedFile) error {
+	for _, file := range files {
+		if !file.ContentCaptured {
+			continue
+		}
+
+		path, ok := safePath(root, file.Path)
+		if !ok {
+			return fmt.Errorf("unsafe changed file path %s", file.Path)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("create parent directory for %s: %w", file.Path, err)
+		}
+		if err := os.WriteFile(path, []byte(file.Content), 0o644); err != nil {
+			return fmt.Errorf("write changed file %s: %w", file.Path, err)
+		}
+	}
+
+	return nil
+}
+
+func countCapturedFiles(files []gitstate.ChangedFile) int {
+	count := 0
+	for _, file := range files {
+		if file.ContentCaptured {
+			count++
+		}
+	}
+	return count
+}
+
+func safePath(root string, path string) (string, bool) {
+	cleanPath := filepath.Clean(path)
+	if filepath.IsAbs(cleanPath) || cleanPath == ".." || strings.HasPrefix(cleanPath, "../") {
+		return "", false
+	}
+	return filepath.Join(root, cleanPath), true
+}
+
 func samePath(left string, right string) bool {
 	leftInfo, leftErr := os.Stat(left)
 	rightInfo, rightErr := os.Stat(right)
@@ -177,6 +235,6 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  relay capture [--path PATH] [--json] [--out FILE]")
-	fmt.Fprintln(w, "  relay restore SESSION_FILE")
+	fmt.Fprintln(w, "  relay restore [--apply] SESSION_FILE")
 	fmt.Fprintln(w, "  relay version")
 }
