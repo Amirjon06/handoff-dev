@@ -31,7 +31,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	case "capture":
 		return runCapture(ctx, args[1:], stdout)
 	case "restore":
-		return runRestore(args[1:], stdout)
+		return runRestore(ctx, args[1:], stdout)
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return nil
@@ -92,7 +92,7 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
-func runRestore(args []string, stdout io.Writer) error {
+func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("restore", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 
@@ -115,12 +115,30 @@ func runRestore(args []string, stdout io.Writer) error {
 		return fmt.Errorf("read session: %w", err)
 	}
 
+	verifiedRoot, err := gitstate.Root(ctx, captured.Git.Root)
+	if err != nil {
+		return fmt.Errorf("verify git root: %w", err)
+	}
+	if !samePath(verifiedRoot, captured.Git.Root) {
+		return fmt.Errorf("session root %s resolved to %s", captured.Git.Root, verifiedRoot)
+	}
+
 	fmt.Fprintln(stdout, "Restore plan")
 	fmt.Fprintf(stdout, "Git root: %s\n", captured.Git.Root)
 	fmt.Fprintf(stdout, "Git remote: %s\n", captured.Git.Remote)
 	fmt.Fprintf(stdout, "Git branch: %s\n", captured.Git.Branch)
 	fmt.Fprintf(stdout, "Git commit: %s\n", captured.Git.Commit)
 	return nil
+}
+
+func samePath(left string, right string) bool {
+	leftInfo, leftErr := os.Stat(left)
+	rightInfo, rightErr := os.Stat(right)
+	if leftErr == nil && rightErr == nil {
+		return os.SameFile(leftInfo, rightInfo)
+	}
+
+	return left == right
 }
 
 func printHelp(w io.Writer) {
