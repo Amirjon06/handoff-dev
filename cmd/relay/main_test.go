@@ -73,6 +73,26 @@ func TestRestoreRejectsMissingGitRoot(t *testing.T) {
 	}
 }
 
+func TestRestoreRejectsBranchMismatch(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+		Root:   repoRoot,
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "feature/missing",
+		Commit: "faaf307bf4fa86c316586804bf88f3096511aabd",
+	})
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"restore", path}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error for branch mismatch")
+	}
+
+	if !strings.Contains(err.Error(), "session branch feature/missing does not match current branch") {
+		t.Fatalf("error = %q, want branch mismatch error", err.Error())
+	}
+}
+
 func TestRestoreRequiresSessionFile(t *testing.T) {
 	var stdout bytes.Buffer
 
@@ -86,7 +106,7 @@ func initGitRepo(t *testing.T) string {
 	t.Helper()
 
 	dir := t.TempDir()
-	cmd := exec.Command("git", "init", dir)
+	cmd := exec.Command("git", "init", "--initial-branch=main", dir)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init returned error: %v\n%s", err, output)
 	}
@@ -97,18 +117,24 @@ func initGitRepo(t *testing.T) string {
 func writeTestSession(t *testing.T, root string) string {
 	t.Helper()
 
+	return writeTestSessionWithGit(t, root, gitstate.State{
+		Root:   root,
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: "faaf307bf4fa86c316586804bf88f3096511aabd",
+	})
+}
+
+func writeTestSessionWithGit(t *testing.T, root string, git gitstate.State) string {
+	t.Helper()
+
 	file, err := os.CreateTemp(t.TempDir(), "session-*.json")
 	if err != nil {
 		t.Fatalf("CreateTemp returned error: %v", err)
 	}
 	defer file.Close()
 
-	captured := session.New("test-machine", gitstate.State{
-		Root:   root,
-		Remote: "https://github.com/Amirjon06/handoff-dev.git",
-		Branch: "main",
-		Commit: "faaf307bf4fa86c316586804bf88f3096511aabd",
-	}, time.Date(2026, 8, 10, 18, 30, 0, 0, time.UTC))
+	captured := session.New("test-machine", git, time.Date(2026, 8, 10, 18, 30, 0, 0, time.UTC))
 
 	if err := session.WriteJSON(file, captured); err != nil {
 		t.Fatalf("WriteJSON returned error: %v", err)
