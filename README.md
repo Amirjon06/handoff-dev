@@ -119,11 +119,19 @@ Planned capture example:
     "changed_files": [
       {
         "path": "main.py",
-        "status": "modified"
+        "status": "modified",
+        "size": 128,
+        "content_captured": true,
+        "content_encoding": "utf-8",
+        "content": "def login():\n    pass\n"
       },
       {
         "path": "notes.txt",
-        "status": "untracked"
+        "status": "untracked",
+        "size": 24,
+        "content_captured": true,
+        "content_encoding": "utf-8",
+        "content": "remember auth edge case\n"
       }
     ]
   }

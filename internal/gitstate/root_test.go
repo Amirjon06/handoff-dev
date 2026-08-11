@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -240,5 +241,63 @@ func TestParseStatus(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("changed file %d = %#v, want %#v", i, got[i], want[i])
 		}
+	}
+}
+
+func TestCaptureFileSnapshotsCapturesTextFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(root+"/README.md", []byte("# Changed\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	files, err := captureFileSnapshots(root, []ChangedFile{
+		{Path: "README.md", Status: "modified"},
+	})
+	if err != nil {
+		t.Fatalf("captureFileSnapshots returned error: %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("file count = %d, want 1", len(files))
+	}
+	if !files[0].ContentCaptured {
+		t.Fatal("content captured = false, want true")
+	}
+	if files[0].ContentEncoding != "utf-8" {
+		t.Fatalf("content encoding = %q, want utf-8", files[0].ContentEncoding)
+	}
+	if files[0].Content != "# Changed\n" {
+		t.Fatalf("content = %q", files[0].Content)
+	}
+}
+
+func TestCaptureFileSnapshotsSkipsBinaryFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(root+"/image.bin", []byte{0xff, 0xfe, 0xfd}, 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	files, err := captureFileSnapshots(root, []ChangedFile{
+		{Path: "image.bin", Status: "modified"},
+	})
+	if err != nil {
+		t.Fatalf("captureFileSnapshots returned error: %v", err)
+	}
+
+	if files[0].ContentCaptured {
+		t.Fatal("content captured = true, want false")
+	}
+}
+
+func TestCaptureFileSnapshotsSkipsUnsafePaths(t *testing.T) {
+	files, err := captureFileSnapshots(t.TempDir(), []ChangedFile{
+		{Path: "../secret.txt", Status: "modified"},
+	})
+	if err != nil {
+		t.Fatalf("captureFileSnapshots returned error: %v", err)
+	}
+
+	if files[0].ContentCaptured {
+		t.Fatal("content captured = true, want false")
 	}
 }

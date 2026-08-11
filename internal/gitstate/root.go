@@ -5,10 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
+
+const maxSnapshotBytes int64 = 1024 * 1024
 
 type commandRunner interface {
 	Run(ctx context.Context, dir string, args ...string) (string, error)
@@ -17,8 +21,12 @@ type commandRunner interface {
 type gitRunner struct{}
 
 type ChangedFile struct {
-	Path   string `json:"path"`
-	Status string `json:"status"`
+	Path            string `json:"path"`
+	Status          string `json:"status"`
+	Size            int64  `json:"size,omitempty"`
+	ContentCaptured bool   `json:"content_captured"`
+	ContentEncoding string `json:"content_encoding,omitempty"`
+	Content         string `json:"content,omitempty"`
 }
 
 type State struct {
@@ -92,6 +100,10 @@ func capture(ctx context.Context, runner commandRunner, path string) (State, err
 	}
 
 	changedFiles, err := changes(ctx, runner, root)
+	if err != nil {
+		return State{}, err
+	}
+	changedFiles, err = captureFileSnapshots(root, changedFiles)
 	if err != nil {
 		return State{}, err
 	}
@@ -229,4 +241,49 @@ func statusName(code string) string {
 	default:
 		return strings.ToLower(code)
 	}
+}
+
+func captureFileSnapshots(root string, files []ChangedFile) ([]ChangedFile, error) {
+	for i := range files {
+		if files[i].Status == "deleted" {
+			continue
+		}
+
+		fullPath, ok := safeJoin(root, files[i].Path)
+		if !ok {
+			continue
+		}
+
+		info, err := os.Stat(fullPath)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		files[i].Size = info.Size()
+		if info.Size() > maxSnapshotBytes {
+			continue
+		}
+
+		content, err := os.ReadFile(fullPath)
+		if err != nil {
+			return nil, fmt.Errorf("read changed file %s: %w", files[i].Path, err)
+		}
+		if !utf8.Valid(content) {
+			continue
+		}
+
+		files[i].ContentCaptured = true
+		files[i].ContentEncoding = "utf-8"
+		files[i].Content = string(content)
+	}
+
+	return files, nil
+}
+
+func safeJoin(root string, path string) (string, bool) {
+	cleanPath := filepath.Clean(path)
+	if filepath.IsAbs(cleanPath) || cleanPath == ".." || strings.HasPrefix(cleanPath, "../") {
+		return "", false
+	}
+
+	return filepath.Join(root, cleanPath), true
 }
