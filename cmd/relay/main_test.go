@@ -231,6 +231,9 @@ func TestRestoreApplyRejectsDirtyWorkingTree(t *testing.T) {
 	if !strings.Contains(err.Error(), "refusing to apply over dirty working tree") {
 		t.Fatalf("error = %q", err.Error())
 	}
+	if !strings.Contains(err.Error(), "modified README.md") {
+		t.Fatalf("error = %q, want dirty file details", err.Error())
+	}
 }
 
 func TestRestoreRequiresSessionFile(t *testing.T) {

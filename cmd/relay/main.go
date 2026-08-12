@@ -153,7 +153,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 			return fmt.Errorf("verify working tree: %w", err)
 		}
 		if currentState.Dirty {
-			return fmt.Errorf("refusing to apply over dirty working tree")
+			return fmt.Errorf("refusing to apply over dirty working tree: %s", formatChangedFiles(currentState.ChangedFiles))
 		}
 		if err := applyChangedFiles(verifiedRoot, captured.Git.ChangedFiles); err != nil {
 			return err
@@ -179,6 +179,18 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 	}
 	return nil
+}
+
+func formatChangedFiles(files []gitstate.ChangedFile) string {
+	if len(files) == 0 {
+		return "unknown local changes"
+	}
+
+	parts := make([]string, 0, len(files))
+	for _, file := range files {
+		parts = append(parts, file.Status+" "+file.Path)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func applyChangedFiles(root string, files []gitstate.ChangedFile) error {
