@@ -179,6 +179,10 @@ func TestRestoreApplyWritesCapturedFiles(t *testing.T) {
 				ContentEncoding: "utf-8",
 				Content:         "# Applied\n",
 			},
+			{
+				Path:   "notes.txt",
+				Status: "modified",
+			},
 		},
 	})
 
@@ -195,8 +199,14 @@ func TestRestoreApplyWritesCapturedFiles(t *testing.T) {
 	if string(content) != "# Applied\n" {
 		t.Fatalf("README content = %q", content)
 	}
-	if got := strings.TrimSpace(stdout.String()); got != "Applied 1 changed file(s)" {
-		t.Fatalf("stdout = %q", got)
+	got := stdout.String()
+	for _, want := range []string{
+		"Applied 1 changed file(s)",
+		"Skipped 1 changed file(s) without captured content: modified notes.txt",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, got)
+		}
 	}
 }
 

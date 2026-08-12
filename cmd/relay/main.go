@@ -155,10 +155,14 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 		if currentState.Dirty {
 			return fmt.Errorf("refusing to apply over dirty working tree: %s", formatChangedFiles(currentState.ChangedFiles))
 		}
-		if err := applyChangedFiles(verifiedRoot, captured.Git.ChangedFiles); err != nil {
+		result, err := applyChangedFiles(verifiedRoot, captured.Git.ChangedFiles)
+		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "Applied %d changed file(s)\n", countCapturedFiles(captured.Git.ChangedFiles))
+		fmt.Fprintf(stdout, "Applied %d changed file(s)\n", result.applied)
+		if len(result.skipped) > 0 {
+			fmt.Fprintf(stdout, "Skipped %d changed file(s) without captured content: %s\n", len(result.skipped), formatChangedFiles(result.skipped))
+		}
 		return nil
 	}
 
@@ -193,35 +197,34 @@ func formatChangedFiles(files []gitstate.ChangedFile) string {
 	return strings.Join(parts, ", ")
 }
 
-func applyChangedFiles(root string, files []gitstate.ChangedFile) error {
+type applyResult struct {
+	applied int
+	skipped []gitstate.ChangedFile
+}
+
+func applyChangedFiles(root string, files []gitstate.ChangedFile) (applyResult, error) {
+	var result applyResult
+
 	for _, file := range files {
 		if !file.ContentCaptured {
+			result.skipped = append(result.skipped, file)
 			continue
 		}
 
 		path, ok := safePath(root, file.Path)
 		if !ok {
-			return fmt.Errorf("unsafe changed file path %s", file.Path)
+			return result, fmt.Errorf("unsafe changed file path %s", file.Path)
 		}
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return fmt.Errorf("create parent directory for %s: %w", file.Path, err)
+			return result, fmt.Errorf("create parent directory for %s: %w", file.Path, err)
 		}
 		if err := os.WriteFile(path, []byte(file.Content), 0o644); err != nil {
-			return fmt.Errorf("write changed file %s: %w", file.Path, err)
+			return result, fmt.Errorf("write changed file %s: %w", file.Path, err)
 		}
+		result.applied++
 	}
 
-	return nil
-}
-
-func countCapturedFiles(files []gitstate.ChangedFile) int {
-	count := 0
-	for _, file := range files {
-		if file.ContentCaptured {
-			count++
-		}
-	}
-	return count
+	return result, nil
 }
 
 func safePath(root string, path string) (string, bool) {
