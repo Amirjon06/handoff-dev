@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -58,6 +59,9 @@ func TestCaptureJSONIncludesChangedFiles(t *testing.T) {
 	if !captured.Git.Dirty {
 		t.Fatal("dirty = false, want true")
 	}
+	if captured.Git.Name != filepath.Base(repoRoot) {
+		t.Fatalf("git name = %q, want %q", captured.Git.Name, filepath.Base(repoRoot))
+	}
 	if len(captured.Git.ChangedFiles) != 2 {
 		t.Fatalf("changed file count = %d, want 2", len(captured.Git.ChangedFiles))
 	}
@@ -69,6 +73,7 @@ func TestRestorePrintsPlan(t *testing.T) {
 	repoRoot, commit := initGitRepo(t)
 	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
 		Root:   repoRoot,
+		Name:   "handoff-dev",
 		Remote: "https://github.com/Amirjon06/handoff-dev.git",
 		Branch: "main",
 		Commit: commit,
@@ -95,6 +100,7 @@ func TestRestorePrintsPlan(t *testing.T) {
 	for _, want := range []string{
 		"Restore plan",
 		"Git root: " + repoRoot,
+		"Git name: handoff-dev",
 		"Git remote: https://github.com/Amirjon06/handoff-dev.git",
 		"Git branch: main",
 		"Git commit: " + commit,

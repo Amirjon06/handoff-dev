@@ -31,6 +31,7 @@ type ChangedFile struct {
 
 type State struct {
 	Root         string        `json:"root"`
+	Name         string        `json:"name"`
 	Remote       string        `json:"remote"`
 	Branch       string        `json:"branch"`
 	Commit       string        `json:"commit"`
@@ -110,6 +111,7 @@ func capture(ctx context.Context, runner commandRunner, path string) (State, err
 
 	return State{
 		Root:         root,
+		Name:         filepath.Base(root),
 		Remote:       remote,
 		Branch:       branch,
 		Commit:       commit,

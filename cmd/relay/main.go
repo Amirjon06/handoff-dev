@@ -88,6 +88,7 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 
 	fmt.Fprintf(stdout, "Git root: %s\n", state.Root)
+	fmt.Fprintf(stdout, "Git name: %s\n", state.Name)
 	fmt.Fprintf(stdout, "Git remote: %s\n", state.Remote)
 	fmt.Fprintf(stdout, "Git branch: %s\n", state.Branch)
 	fmt.Fprintf(stdout, "Git commit: %s\n", state.Commit)
@@ -174,6 +175,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 
 	fmt.Fprintln(stdout, "Restore plan")
 	fmt.Fprintf(stdout, "Git root: %s\n", captured.Git.Root)
+	fmt.Fprintf(stdout, "Git name: %s\n", captured.Git.Name)
 	fmt.Fprintf(stdout, "Git remote: %s\n", captured.Git.Remote)
 	fmt.Fprintf(stdout, "Git branch: %s\n", captured.Git.Branch)
 	fmt.Fprintf(stdout, "Git commit: %s\n", captured.Git.Commit)

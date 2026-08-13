@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -194,6 +195,9 @@ func TestCaptureReturnsGitState(t *testing.T) {
 
 	if got.Root != expectedRoot {
 		t.Fatalf("root = %q, want %q", got.Root, expectedRoot)
+	}
+	if got.Name != filepath.Base(expectedRoot) {
+		t.Fatalf("name = %q, want %q", got.Name, filepath.Base(expectedRoot))
 	}
 	if got.Remote != "https://github.com/Amirjon06/handoff-dev.git" {
 		t.Fatalf("remote = %q", got.Remote)
