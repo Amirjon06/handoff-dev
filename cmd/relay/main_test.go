@@ -210,6 +210,54 @@ func TestRestoreApplyWritesCapturedFiles(t *testing.T) {
 	}
 }
 
+func TestRestoreApplyDryRunDoesNotWriteFiles(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+		Root:   repoRoot,
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+		Dirty:  true,
+		ChangedFiles: []gitstate.ChangedFile{
+			{
+				Path:            "README.md",
+				Status:          "modified",
+				Size:            10,
+				ContentCaptured: true,
+				ContentEncoding: "utf-8",
+				Content:         "# Applied\n",
+			},
+			{
+				Path:   "notes.txt",
+				Status: "modified",
+			},
+		},
+	})
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"restore", "--apply", "--dry-run", path}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	content, err := os.ReadFile(repoRoot + "/README.md")
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if string(content) != "# Test Repo\n" {
+		t.Fatalf("README content = %q", content)
+	}
+	got := stdout.String()
+	for _, want := range []string{
+		"Would apply 1 changed file(s)",
+		"Skipped 1 changed file(s) without captured content: modified notes.txt",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRestoreApplyRejectsDirtyWorkingTree(t *testing.T) {
 	repoRoot, commit := initGitRepo(t)
 	if err := os.WriteFile(repoRoot+"/README.md", []byte("# Local change\n"), 0o644); err != nil {

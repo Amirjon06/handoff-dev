@@ -103,6 +103,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	fs.SetOutput(io.Discard)
 
 	apply := fs.Bool("apply", false, "write captured file snapshots after validation")
+	dryRun := fs.Bool("dry-run", false, "validate apply without writing captured file snapshots")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -155,14 +156,19 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 		if currentState.Dirty {
 			return fmt.Errorf("refusing to apply over dirty working tree: %s", formatChangedFiles(currentState.ChangedFiles))
 		}
+		if *dryRun {
+			result, err := planApplyFiles(verifiedRoot, captured.Git.ChangedFiles)
+			if err != nil {
+				return err
+			}
+			printApplyResult(stdout, "Would apply", result)
+			return nil
+		}
 		result, err := applyChangedFiles(verifiedRoot, captured.Git.ChangedFiles)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "Applied %d changed file(s)\n", result.applied)
-		if len(result.skipped) > 0 {
-			fmt.Fprintf(stdout, "Skipped %d changed file(s) without captured content: %s\n", len(result.skipped), formatChangedFiles(result.skipped))
-		}
+		printApplyResult(stdout, "Applied", result)
 		return nil
 	}
 
@@ -198,11 +204,11 @@ func formatChangedFiles(files []gitstate.ChangedFile) string {
 }
 
 type applyResult struct {
-	applied int
+	applied []gitstate.ChangedFile
 	skipped []gitstate.ChangedFile
 }
 
-func applyChangedFiles(root string, files []gitstate.ChangedFile) (applyResult, error) {
+func planApplyFiles(root string, files []gitstate.ChangedFile) (applyResult, error) {
 	var result applyResult
 
 	for _, file := range files {
@@ -211,20 +217,39 @@ func applyChangedFiles(root string, files []gitstate.ChangedFile) (applyResult, 
 			continue
 		}
 
-		path, ok := safePath(root, file.Path)
-		if !ok {
+		if _, ok := safePath(root, file.Path); !ok {
 			return result, fmt.Errorf("unsafe changed file path %s", file.Path)
 		}
+		result.applied = append(result.applied, file)
+	}
+
+	return result, nil
+}
+
+func applyChangedFiles(root string, files []gitstate.ChangedFile) (applyResult, error) {
+	result, err := planApplyFiles(root, files)
+	if err != nil {
+		return result, err
+	}
+
+	for _, file := range result.applied {
+		path, _ := safePath(root, file.Path)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return result, fmt.Errorf("create parent directory for %s: %w", file.Path, err)
 		}
 		if err := os.WriteFile(path, []byte(file.Content), 0o644); err != nil {
 			return result, fmt.Errorf("write changed file %s: %w", file.Path, err)
 		}
-		result.applied++
 	}
 
 	return result, nil
+}
+
+func printApplyResult(stdout io.Writer, action string, result applyResult) {
+	fmt.Fprintf(stdout, "%s %d changed file(s)\n", action, len(result.applied))
+	if len(result.skipped) > 0 {
+		fmt.Fprintf(stdout, "Skipped %d changed file(s) without captured content: %s\n", len(result.skipped), formatChangedFiles(result.skipped))
+	}
 }
 
 func safePath(root string, path string) (string, bool) {
@@ -250,6 +275,6 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  relay capture [--path PATH] [--json] [--out FILE]")
-	fmt.Fprintln(w, "  relay restore [--apply] SESSION_FILE")
+	fmt.Fprintln(w, "  relay restore [--apply] [--dry-run] SESSION_FILE")
 	fmt.Fprintln(w, "  relay version")
 }

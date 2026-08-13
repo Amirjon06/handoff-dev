@@ -86,17 +86,18 @@ go run ./cmd/relay capture --path .
 go run ./cmd/relay capture --path . --json
 go run ./cmd/relay capture --path . --out session.json
 go run ./cmd/relay restore session.json
+go run ./cmd/relay restore --apply --dry-run session.json
 go run ./cmd/relay restore --apply session.json
 ```
 
-Current capture output includes the Git repository root, origin remote, active branch, current commit, and dirty working tree status. Use `--json` to produce the first StateRelay session artifact. Restore verifies that the captured Git root, branch, and commit match before printing a read-only plan. Use `restore --apply` to write captured text snapshots into a clean working tree; dirty destinations are rejected with the blocking file list, and uncaptured files are reported as skipped.
+Current capture output includes the Git repository root, origin remote, active branch, current commit, and dirty working tree status. Use `--json` to produce the first StateRelay session artifact. Restore verifies that the captured Git root, branch, and commit match before printing a read-only plan. Use `restore --apply --dry-run` to validate an apply without writing files. Use `restore --apply` to write captured text snapshots into a clean working tree; dirty destinations are rejected with the blocking file list, and uncaptured files are reported as skipped.
 
 Planned commands:
 
 ```bash
 relay capture [--path PATH] [--json]
 relay capture [--path PATH] [--out FILE]
-relay restore [--apply] SESSION_FILE
+relay restore [--apply] [--dry-run] SESSION_FILE
 relay version
 ```
 
