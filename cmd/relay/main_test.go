@@ -368,6 +368,10 @@ func writeTestSession(t *testing.T, root string, commit string) string {
 func writeTestSessionWithGit(t *testing.T, root string, git gitstate.State) string {
 	t.Helper()
 
+	if git.Name == "" {
+		git.Name = filepath.Base(root)
+	}
+
 	file, err := os.CreateTemp(t.TempDir(), "session-*.json")
 	if err != nil {
 		t.Fatalf("CreateTemp returned error: %v", err)

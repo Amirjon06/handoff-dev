@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
@@ -52,5 +53,35 @@ func ReadJSON(r io.Reader) (Session, error) {
 	if s.SchemaVersion != SchemaVersion {
 		return Session{}, fmt.Errorf("unsupported session schema version %d", s.SchemaVersion)
 	}
+	if err := validate(s); err != nil {
+		return Session{}, err
+	}
 	return s, nil
+}
+
+func validate(s Session) error {
+	required := []struct {
+		name  string
+		value string
+	}{
+		{"source.hostname", s.Source.Hostname},
+		{"source.os", s.Source.OS},
+		{"source.arch", s.Source.Arch},
+		{"git.root", s.Git.Root},
+		{"git.name", s.Git.Name},
+		{"git.remote", s.Git.Remote},
+		{"git.branch", s.Git.Branch},
+		{"git.commit", s.Git.Commit},
+	}
+
+	if s.CapturedAt.IsZero() {
+		return fmt.Errorf("session captured_at is required")
+	}
+	for _, field := range required {
+		if strings.TrimSpace(field.value) == "" {
+			return fmt.Errorf("session %s is required", field.name)
+		}
+	}
+
+	return nil
 }

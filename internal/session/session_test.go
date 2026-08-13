@@ -12,6 +12,7 @@ import (
 func TestSessionJSONRoundTrip(t *testing.T) {
 	capturedAt := time.Date(2026, 8, 10, 18, 30, 0, 0, time.UTC)
 	original := New("amir-macbook", gitstate.State{
+		Name:   "handoff-dev",
 		Root:   "/Users/amir/projects/handoff-dev",
 		Remote: "https://github.com/Amirjon06/handoff-dev.git",
 		Branch: "main",
@@ -36,6 +37,60 @@ func TestSessionJSONRoundTrip(t *testing.T) {
 	}
 	if got.Git.Remote != "https://github.com/Amirjon06/handoff-dev.git" {
 		t.Fatalf("remote = %q", got.Git.Remote)
+	}
+}
+
+func TestReadJSONRejectsMissingCapturedAt(t *testing.T) {
+	input := `{
+		"schema_version": 1,
+		"source": {
+			"hostname": "amir-macbook",
+			"os": "darwin",
+			"arch": "arm64"
+		},
+		"git": {
+			"root": "/Users/amir/projects/handoff-dev",
+			"name": "handoff-dev",
+			"remote": "https://github.com/Amirjon06/handoff-dev.git",
+			"branch": "main",
+			"commit": "faaf307bf4fa86c316586804bf88f3096511aabd"
+		}
+	}`
+
+	_, err := ReadJSON(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("ReadJSON returned nil error without captured_at")
+	}
+
+	if got := err.Error(); got != "session captured_at is required" {
+		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestReadJSONRejectsMissingGitName(t *testing.T) {
+	input := `{
+		"schema_version": 1,
+		"captured_at": "2026-08-10T18:30:00Z",
+		"source": {
+			"hostname": "amir-macbook",
+			"os": "darwin",
+			"arch": "arm64"
+		},
+		"git": {
+			"root": "/Users/amir/projects/handoff-dev",
+			"remote": "https://github.com/Amirjon06/handoff-dev.git",
+			"branch": "main",
+			"commit": "faaf307bf4fa86c316586804bf88f3096511aabd"
+		}
+	}`
+
+	_, err := ReadJSON(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("ReadJSON returned nil error without git name")
+	}
+
+	if got := err.Error(); got != "session git.name is required" {
+		t.Fatalf("error = %q", got)
 	}
 }
 
