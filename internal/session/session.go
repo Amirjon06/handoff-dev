@@ -82,6 +82,35 @@ func validate(s Session) error {
 			return fmt.Errorf("session %s is required", field.name)
 		}
 	}
+	if err := validateChangedFiles(s.Git.ChangedFiles); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateChangedFiles(files []gitstate.ChangedFile) error {
+	for i, file := range files {
+		prefix := fmt.Sprintf("git.changed_files[%d]", i)
+		if strings.TrimSpace(file.Path) == "" {
+			return fmt.Errorf("session %s.path is required", prefix)
+		}
+		if strings.TrimSpace(file.Status) == "" {
+			return fmt.Errorf("session %s.status is required", prefix)
+		}
+		if !file.ContentCaptured {
+			continue
+		}
+		if strings.TrimSpace(file.ContentEncoding) == "" {
+			return fmt.Errorf("session %s.content_encoding is required", prefix)
+		}
+		if file.ContentEncoding != "utf-8" {
+			return fmt.Errorf("session %s.content_encoding %q is unsupported", prefix, file.ContentEncoding)
+		}
+		if strings.TrimSpace(file.ContentSHA256) == "" {
+			return fmt.Errorf("session %s.content_sha256 is required", prefix)
+		}
+	}
 
 	return nil
 }

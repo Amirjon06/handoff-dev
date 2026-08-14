@@ -94,6 +94,76 @@ func TestReadJSONRejectsMissingGitName(t *testing.T) {
 	}
 }
 
+func TestReadJSONRejectsMissingChangedFilePath(t *testing.T) {
+	input := `{
+		"schema_version": 1,
+		"captured_at": "2026-08-10T18:30:00Z",
+		"source": {
+			"hostname": "amir-macbook",
+			"os": "darwin",
+			"arch": "arm64"
+		},
+		"git": {
+			"root": "/Users/amir/projects/handoff-dev",
+			"name": "handoff-dev",
+			"remote": "https://github.com/Amirjon06/handoff-dev.git",
+			"branch": "main",
+			"commit": "faaf307bf4fa86c316586804bf88f3096511aabd",
+			"changed_files": [
+				{
+					"status": "modified"
+				}
+			]
+		}
+	}`
+
+	_, err := ReadJSON(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("ReadJSON returned nil error without changed file path")
+	}
+
+	if got := err.Error(); got != "session git.changed_files[0].path is required" {
+		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestReadJSONRejectsMissingCapturedContentHash(t *testing.T) {
+	input := `{
+		"schema_version": 1,
+		"captured_at": "2026-08-10T18:30:00Z",
+		"source": {
+			"hostname": "amir-macbook",
+			"os": "darwin",
+			"arch": "arm64"
+		},
+		"git": {
+			"root": "/Users/amir/projects/handoff-dev",
+			"name": "handoff-dev",
+			"remote": "https://github.com/Amirjon06/handoff-dev.git",
+			"branch": "main",
+			"commit": "faaf307bf4fa86c316586804bf88f3096511aabd",
+			"changed_files": [
+				{
+					"path": "README.md",
+					"status": "modified",
+					"content_captured": true,
+					"content_encoding": "utf-8",
+					"content": "# Changed\n"
+				}
+			]
+		}
+	}`
+
+	_, err := ReadJSON(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("ReadJSON returned nil error without captured content hash")
+	}
+
+	if got := err.Error(); got != "session git.changed_files[0].content_sha256 is required" {
+		t.Fatalf("error = %q", got)
+	}
+}
+
 func TestReadJSONRejectsUnsupportedSchema(t *testing.T) {
 	input := `{"schema_version": 99}`
 
