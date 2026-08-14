@@ -90,7 +90,7 @@ go run ./cmd/relay restore --apply --dry-run session.json
 go run ./cmd/relay restore --apply session.json
 ```
 
-Current capture output includes the Git repository root, repository name, origin remote, active branch, current commit, and dirty working tree status. Use `--json` to produce the first StateRelay session artifact. Restore rejects malformed session files before verifying that the captured Git root, branch, and commit match. Use `restore --apply --dry-run` to validate an apply without writing files. Use `restore --apply` to write captured text snapshots into a clean working tree; dirty destinations are rejected with the blocking file list, and uncaptured files are reported as skipped.
+Current capture output includes the Git repository root, repository name, origin remote, active branch, current commit, and dirty working tree status. Captured text snapshots include SHA-256 hashes for integrity checks. Use `--json` to produce the first StateRelay session artifact. Restore rejects malformed session files before verifying that the captured Git root, branch, and commit match. Use `restore --apply --dry-run` to validate an apply without writing files. Use `restore --apply` to write captured text snapshots into a clean working tree; dirty destinations are rejected with the blocking file list, and uncaptured files are reported as skipped.
 
 Planned commands:
 
@@ -126,6 +126,7 @@ Planned capture example:
         "size": 128,
         "content_captured": true,
         "content_encoding": "utf-8",
+        "content_sha256": "6f1ed002ab5595859014ebf0951522d9b4fb6e7f3d25eb15c0d4f8b9f2f5e8a5",
         "content": "def login():\n    pass\n"
       },
       {
@@ -134,6 +135,7 @@ Planned capture example:
         "size": 24,
         "content_captured": true,
         "content_encoding": "utf-8",
+        "content_sha256": "f54b6f16b62bd5f0293051e367a4bc20a7c011fd7a1b0f0c8eb0f7e53f349229",
         "content": "remember auth edge case\n"
       }
     ]

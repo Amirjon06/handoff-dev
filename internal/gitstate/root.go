@@ -3,6 +3,8 @@ package gitstate
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -26,6 +28,7 @@ type ChangedFile struct {
 	Size            int64  `json:"size,omitempty"`
 	ContentCaptured bool   `json:"content_captured"`
 	ContentEncoding string `json:"content_encoding,omitempty"`
+	ContentSHA256   string `json:"content_sha256,omitempty"`
 	Content         string `json:"content,omitempty"`
 }
 
@@ -275,10 +278,16 @@ func captureFileSnapshots(root string, files []ChangedFile) ([]ChangedFile, erro
 
 		files[i].ContentCaptured = true
 		files[i].ContentEncoding = "utf-8"
+		files[i].ContentSHA256 = sha256Hex(content)
 		files[i].Content = string(content)
 	}
 
 	return files, nil
+}
+
+func sha256Hex(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
 }
 
 func safeJoin(root string, path string) (string, bool) {

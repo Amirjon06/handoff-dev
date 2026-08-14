@@ -270,6 +270,9 @@ func TestCaptureFileSnapshotsCapturesTextFiles(t *testing.T) {
 	if files[0].ContentEncoding != "utf-8" {
 		t.Fatalf("content encoding = %q, want utf-8", files[0].ContentEncoding)
 	}
+	if files[0].ContentSHA256 != "fa8549bc791b513f06435d4e2b912b37bfed2e8388ad5edd89c33a9fee467f7a" {
+		t.Fatalf("content sha256 = %q", files[0].ContentSHA256)
+	}
 	if files[0].Content != "# Changed\n" {
 		t.Fatalf("content = %q", files[0].Content)
 	}
