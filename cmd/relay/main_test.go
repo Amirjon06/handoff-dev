@@ -138,6 +138,39 @@ func TestRestorePrintsPlan(t *testing.T) {
 	}
 }
 
+func TestRestoreAcceptsPathOverride(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	destinationRoot := filepath.Join(t.TempDir(), "destination")
+	runGit(t, t.TempDir(), "clone", repoRoot, destinationRoot)
+	verifiedDestinationRoot := strings.TrimSpace(runGit(t, destinationRoot, "rev-parse", "--show-toplevel"))
+	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+		Root:   repoRoot,
+		Name:   "handoff-dev",
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+	})
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"restore", "--path", destinationRoot, path}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"Restore plan",
+		"Git root: " + repoRoot,
+		"Restore root: " + verifiedDestinationRoot,
+		"Git branch: main",
+		"Git commit: " + commit,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("restore output missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRestoreRejectsMissingGitRoot(t *testing.T) {
 	path := writeTestSession(t, t.TempDir(), "faaf307bf4fa86c316586804bf88f3096511aabd")
 

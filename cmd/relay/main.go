@@ -111,6 +111,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 
 	apply := fs.Bool("apply", false, "write captured file snapshots after validation")
 	dryRun := fs.Bool("dry-run", false, "validate apply without writing captured file snapshots")
+	path := fs.String("path", "", "project path to restore into")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -131,11 +132,16 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("read session: %w", err)
 	}
 
-	verifiedRoot, err := gitstate.Root(ctx, captured.Git.Root)
+	restorePath := captured.Git.Root
+	if *path != "" {
+		restorePath = *path
+	}
+
+	verifiedRoot, err := gitstate.Root(ctx, restorePath)
 	if err != nil {
 		return fmt.Errorf("verify git root: %w", err)
 	}
-	if !samePath(verifiedRoot, captured.Git.Root) {
+	if *path == "" && !samePath(verifiedRoot, captured.Git.Root) {
 		return fmt.Errorf("session root %s resolved to %s", captured.Git.Root, verifiedRoot)
 	}
 
@@ -181,6 +187,9 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 
 	fmt.Fprintln(stdout, "Restore plan")
 	fmt.Fprintf(stdout, "Git root: %s\n", captured.Git.Root)
+	if *path != "" {
+		fmt.Fprintf(stdout, "Restore root: %s\n", verifiedRoot)
+	}
 	fmt.Fprintf(stdout, "Git name: %s\n", captured.Git.Name)
 	fmt.Fprintf(stdout, "Git remote: %s\n", captured.Git.Remote)
 	fmt.Fprintf(stdout, "Git branch: %s\n", captured.Git.Branch)
@@ -301,6 +310,6 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  relay capture [--path PATH] [--json] [--out FILE]")
-	fmt.Fprintln(w, "  relay restore [--apply] [--dry-run] SESSION_FILE")
+	fmt.Fprintln(w, "  relay restore [--path PATH] [--apply] [--dry-run] SESSION_FILE")
 	fmt.Fprintln(w, "  relay version")
 }
