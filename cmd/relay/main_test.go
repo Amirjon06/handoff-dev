@@ -69,6 +69,29 @@ func TestCaptureJSONIncludesChangedFiles(t *testing.T) {
 	assertChangedFile(t, captured.Git.ChangedFiles, "notes.txt", "untracked")
 }
 
+func TestCapturePrintsSnapshotDetails(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	if err := os.WriteFile(repoRoot+"/README.md", []byte("# Changed\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"capture", "--path", repoRoot}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"Git dirty: true",
+		"Changed file: modified README.md (10 bytes captured, sha256 fa8549bc791b)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("capture output missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRestorePrintsPlan(t *testing.T) {
 	repoRoot, commit := initGitRepo(t)
 	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{

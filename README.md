@@ -90,7 +90,7 @@ go run ./cmd/relay restore --apply --dry-run session.json
 go run ./cmd/relay restore --apply session.json
 ```
 
-Current capture output includes the Git repository root, repository name, origin remote, active branch, current commit, and dirty working tree status. Captured text snapshots include SHA-256 hashes for integrity checks, and restore plans show a short hash prefix for captured files. Use `--json` to produce the first StateRelay session artifact. Restore rejects malformed or unsafe session files before verifying that the captured Git root, branch, and commit match. Use `restore --apply --dry-run` to validate an apply without writing files. Use `restore --apply` to write captured text snapshots into a clean working tree; dirty destinations are rejected with the blocking file list, content hashes are checked before files are written, and uncaptured files are reported as skipped.
+Current capture output includes the Git repository root, repository name, origin remote, active branch, current commit, dirty working tree status, and captured file snapshot details. Captured text snapshots include SHA-256 hashes for integrity checks, and restore plans show a short hash prefix for captured files. Use `--json` to produce the first StateRelay session artifact. Restore rejects malformed or unsafe session files before verifying that the captured Git root, branch, and commit match. Use `restore --apply --dry-run` to validate an apply without writing files. Use `restore --apply` to write captured text snapshots into a clean working tree; dirty destinations are rejected with the blocking file list, content hashes are checked before files are written, and uncaptured files are reported as skipped.
 
 Planned commands:
 
