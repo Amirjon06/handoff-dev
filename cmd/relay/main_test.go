@@ -183,6 +183,7 @@ func TestRestoreApplyWritesCapturedFiles(t *testing.T) {
 				Size:            10,
 				ContentCaptured: true,
 				ContentEncoding: "utf-8",
+				ContentSHA256:   "359f6acb2ccacf06e0aa9b8951561b13e71c7daed3b210e0d8d413705641eadd",
 				Content:         "# Applied\n",
 			},
 			{
@@ -231,6 +232,7 @@ func TestRestoreApplyDryRunDoesNotWriteFiles(t *testing.T) {
 				Size:            10,
 				ContentCaptured: true,
 				ContentEncoding: "utf-8",
+				ContentSHA256:   "359f6acb2ccacf06e0aa9b8951561b13e71c7daed3b210e0d8d413705641eadd",
 				Content:         "# Applied\n",
 			},
 			{
@@ -261,6 +263,45 @@ func TestRestoreApplyDryRunDoesNotWriteFiles(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stdout missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestRestoreApplyRejectsContentHashMismatch(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+		Root:   repoRoot,
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+		Dirty:  true,
+		ChangedFiles: []gitstate.ChangedFile{
+			{
+				Path:            "README.md",
+				Status:          "modified",
+				Size:            10,
+				ContentCaptured: true,
+				ContentEncoding: "utf-8",
+				ContentSHA256:   "0000000000000000000000000000000000000000000000000000000000000000",
+				Content:         "# Applied\n",
+			},
+		},
+	})
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"restore", "--apply", path}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error for content hash mismatch")
+	}
+	if !strings.Contains(err.Error(), "changed file README.md content hash mismatch") {
+		t.Fatalf("error = %q", err.Error())
+	}
+
+	content, err := os.ReadFile(repoRoot + "/README.md")
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if string(content) != "# Test Repo\n" {
+		t.Fatalf("README content = %q", content)
 	}
 }
 

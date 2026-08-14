@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -222,6 +224,12 @@ func planApplyFiles(root string, files []gitstate.ChangedFile) (applyResult, err
 		if _, ok := safePath(root, file.Path); !ok {
 			return result, fmt.Errorf("unsafe changed file path %s", file.Path)
 		}
+		if file.ContentSHA256 == "" {
+			return result, fmt.Errorf("changed file %s is missing content hash", file.Path)
+		}
+		if sha256Hex([]byte(file.Content)) != file.ContentSHA256 {
+			return result, fmt.Errorf("changed file %s content hash mismatch", file.Path)
+		}
 		result.applied = append(result.applied, file)
 	}
 
@@ -252,6 +260,11 @@ func printApplyResult(stdout io.Writer, action string, result applyResult) {
 	if len(result.skipped) > 0 {
 		fmt.Fprintf(stdout, "Skipped %d changed file(s) without captured content: %s\n", len(result.skipped), formatChangedFiles(result.skipped))
 	}
+}
+
+func sha256Hex(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
 }
 
 func safePath(root string, path string) (string, bool) {
