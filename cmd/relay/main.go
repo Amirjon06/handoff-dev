@@ -186,7 +186,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 		fmt.Fprintln(stdout, "Changed files:")
 		for _, file := range captured.Git.ChangedFiles {
 			if file.ContentCaptured {
-				fmt.Fprintf(stdout, "- %s %s (%d bytes captured)\n", file.Status, file.Path, file.Size)
+				fmt.Fprintf(stdout, "- %s %s (%d bytes captured, sha256 %s)\n", file.Status, file.Path, file.Size, shortHash(file.ContentSHA256))
 				continue
 			}
 			fmt.Fprintf(stdout, "- %s %s (content not captured)\n", file.Status, file.Path)
@@ -265,6 +265,13 @@ func printApplyResult(stdout io.Writer, action string, result applyResult) {
 func sha256Hex(content []byte) string {
 	sum := sha256.Sum256(content)
 	return hex.EncodeToString(sum[:])
+}
+
+func shortHash(hash string) string {
+	if len(hash) <= 12 {
+		return hash
+	}
+	return hash[:12]
 }
 
 func safePath(root string, path string) (string, bool) {

@@ -107,7 +107,7 @@ func TestRestorePrintsPlan(t *testing.T) {
 		"Git commit: " + commit,
 		"Git dirty: true",
 		"Changed files:",
-		"- modified README.md (11 bytes captured)",
+		"- modified README.md (11 bytes captured, sha256 fa8549bc791b)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("restore output missing %q:\n%s", want, got)
