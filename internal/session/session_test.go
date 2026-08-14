@@ -164,6 +164,40 @@ func TestReadJSONRejectsMissingCapturedContentHash(t *testing.T) {
 	}
 }
 
+func TestReadJSONRejectsUnsafeChangedFilePath(t *testing.T) {
+	input := `{
+		"schema_version": 1,
+		"captured_at": "2026-08-10T18:30:00Z",
+		"source": {
+			"hostname": "amir-macbook",
+			"os": "darwin",
+			"arch": "arm64"
+		},
+		"git": {
+			"root": "/Users/amir/projects/handoff-dev",
+			"name": "handoff-dev",
+			"remote": "https://github.com/Amirjon06/handoff-dev.git",
+			"branch": "main",
+			"commit": "faaf307bf4fa86c316586804bf88f3096511aabd",
+			"changed_files": [
+				{
+					"path": "../secret.txt",
+					"status": "modified"
+				}
+			]
+		}
+	}`
+
+	_, err := ReadJSON(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("ReadJSON returned nil error for unsafe changed file path")
+	}
+
+	if got := err.Error(); got != `session git.changed_files[0].path "../secret.txt" is unsafe` {
+		t.Fatalf("error = %q", got)
+	}
+}
+
 func TestReadJSONRejectsUnsupportedSchema(t *testing.T) {
 	input := `{"schema_version": 99}`
 

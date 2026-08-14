@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -95,6 +96,9 @@ func validateChangedFiles(files []gitstate.ChangedFile) error {
 		if strings.TrimSpace(file.Path) == "" {
 			return fmt.Errorf("session %s.path is required", prefix)
 		}
+		if !safeSessionPath(file.Path) {
+			return fmt.Errorf("session %s.path %q is unsafe", prefix, file.Path)
+		}
 		if strings.TrimSpace(file.Status) == "" {
 			return fmt.Errorf("session %s.status is required", prefix)
 		}
@@ -113,4 +117,9 @@ func validateChangedFiles(files []gitstate.ChangedFile) error {
 	}
 
 	return nil
+}
+
+func safeSessionPath(path string) bool {
+	cleanPath := filepath.Clean(path)
+	return !filepath.IsAbs(cleanPath) && cleanPath != ".." && !strings.HasPrefix(cleanPath, "../")
 }
