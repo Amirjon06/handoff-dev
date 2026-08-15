@@ -23,6 +23,9 @@ jobs:
       - name: Run tests
         run: go test ./...
 
+      - name: Build CLI
+        run: go build -trimpath -o /tmp/relay ./cmd/relay
+
   vscode-extension:
     name: VS Code Extension
     runs-on: ubuntu-latest

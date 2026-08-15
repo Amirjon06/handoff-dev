@@ -12,3 +12,6 @@ staterelay.db
 node_modules/
 out/
 .vscode-test/
+
+extensions/vscode/node_modules/
+extensions/vscode/out/
