@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,9 +17,12 @@ import (
 	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/session"
+	"github.com/Amirjon06/handoff-dev/internal/transport"
 )
 
 const version = "0.1.0-dev"
+
+var sendSession = transport.Client{}.Send
 
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout); err != nil {
@@ -37,6 +42,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runCapture(ctx, args[1:], stdout)
 	case "restore":
 		return runRestore(ctx, args[1:], stdout)
+	case "send":
+		return runSend(ctx, args[1:], stdout)
+	case "listen":
+		return runListen(ctx, args[1:], stdout)
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return nil
@@ -46,6 +55,71 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runSend(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("send", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	target := fs.String("to", "", "HTTP target to send the session to")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *target == "" {
+		return fmt.Errorf("send requires --to")
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("send requires a session JSON file")
+	}
+
+	captured, err := readSessionFile(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	receipt, err := sendSession(ctx, *target, captured)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(stdout, "Sent session to %s\n", *target)
+	if receipt.ID != "" {
+		fmt.Fprintf(stdout, "Receipt: %s\n", receipt.ID)
+	}
+	return nil
+}
+
+func runListen(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("listen", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	addr := fs.String("addr", "127.0.0.1:8765", "HTTP listen address")
+	inbox := fs.String("inbox", filepath.Join(".staterelay", "inbox"), "directory for received sessions")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("listen does not accept positional arguments")
+	}
+
+	server := &http.Server{
+		Addr:              *addr,
+		Handler:           transport.Handler(transport.FileInbox{Dir: *inbox}),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+	}()
+
+	fmt.Fprintf(stdout, "Listening on http://%s\n", *addr)
+	fmt.Fprintf(stdout, "Inbox: %s\n", *inbox)
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
@@ -127,15 +201,9 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("restore requires a session JSON file")
 	}
 
-	file, err := os.Open(fs.Arg(0))
+	captured, err := readSessionFile(fs.Arg(0))
 	if err != nil {
-		return fmt.Errorf("open %s: %w", fs.Arg(0), err)
-	}
-	defer file.Close()
-
-	captured, err := session.ReadJSON(file)
-	if err != nil {
-		return fmt.Errorf("read session: %w", err)
+		return err
 	}
 
 	restorePath := captured.Git.Root
@@ -218,6 +286,20 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	printEditorState(stdout, captured.Editor)
 	return nil
+}
+
+func readSessionFile(path string) (session.Session, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return session.Session{}, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer file.Close()
+
+	captured, err := session.ReadJSON(file)
+	if err != nil {
+		return session.Session{}, fmt.Errorf("read session: %w", err)
+	}
+	return captured, nil
 }
 
 func formatChangedFiles(files []gitstate.ChangedFile) string {
@@ -340,5 +422,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  relay capture [--path PATH] [--json] [--out FILE]")
 	fmt.Fprintln(w, "  relay restore [--path PATH] [--apply] [--dry-run] SESSION_FILE")
+	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR]")
+	fmt.Fprintln(w, "  relay send --to URL SESSION_FILE")
 	fmt.Fprintln(w, "  relay version")
 }

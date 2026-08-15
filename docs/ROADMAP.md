@@ -47,9 +47,8 @@ Goal: prove StateRelay can rebuild a workspace on one machine.
 Goal: move one session between two machines.
 
 - `relay listen`
-- `relay send HOST`
-- HTTP transport
-- basic validation
+- `relay send --to URL`
+- HTTP transport with validated session storage
 - destination restore
 
 ## Phase 6: Uncommitted Work
@@ -88,4 +87,3 @@ Goal: restore more of the user's working environment.
 - project history
 - background service
 - simple desktop UI
-

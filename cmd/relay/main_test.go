@@ -13,6 +13,7 @@ import (
 	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/session"
+	"github.com/Amirjon06/handoff-dev/internal/transport"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -34,6 +35,50 @@ func TestUnknownCommand(t *testing.T) {
 	err := run(context.Background(), []string{"nope"}, &stdout)
 	if err == nil {
 		t.Fatal("run returned nil error for unknown command")
+	}
+}
+
+func TestSendCommandPostsSession(t *testing.T) {
+	path := writeTestSession(t, t.TempDir(), "faaf307bf4fa86c316586804bf88f3096511aabd")
+	var received session.Session
+	oldSendSession := sendSession
+	t.Cleanup(func() { sendSession = oldSendSession })
+	sendSession = func(ctx context.Context, target string, captured session.Session) (transport.Receipt, error) {
+		if target != "http://127.0.0.1:8765" {
+			t.Fatalf("target = %q", target)
+		}
+		received = captured
+		return transport.Receipt{ID: "session-1", Message: "session stored"}, nil
+	}
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"send", "--to", "http://127.0.0.1:8765", path}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	if received.Git.Commit != "faaf307bf4fa86c316586804bf88f3096511aabd" {
+		t.Fatalf("commit = %q", received.Git.Commit)
+	}
+	got := stdout.String()
+	for _, want := range []string{
+		"Sent session to http://127.0.0.1:8765",
+		"Receipt: session-1",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestSendRequiresTarget(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"send", "session.json"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error without target")
+	}
+	if err.Error() != "send requires --to" {
+		t.Fatalf("error = %q", err.Error())
 	}
 }
 

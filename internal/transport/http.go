@@ -1,0 +1,199 @@
+package transport
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/Amirjon06/handoff-dev/internal/session"
+)
+
+const SessionsPath = "/sessions"
+
+var defaultHTTPClient = &http.Client{Timeout: 15 * time.Second}
+
+type Receipt struct {
+	ID      string `json:"id,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+type Client struct {
+	HTTPClient *http.Client
+}
+
+func (c Client) Send(ctx context.Context, target string, captured session.Session) (Receipt, error) {
+	endpoint, err := sessionEndpoint(target)
+	if err != nil {
+		return Receipt{}, err
+	}
+
+	var body bytes.Buffer
+	if err := session.WriteJSON(&body, captured); err != nil {
+		return Receipt{}, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &body)
+	if err != nil {
+		return Receipt{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client().Do(req)
+	if err != nil {
+		return Receipt{}, fmt.Errorf("send session: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		message, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		detail := strings.TrimSpace(string(message))
+		if detail == "" {
+			return Receipt{}, fmt.Errorf("send session: server returned %s", resp.Status)
+		}
+		return Receipt{}, fmt.Errorf("send session: server returned %s: %s", resp.Status, detail)
+	}
+
+	var receipt Receipt
+	if err := json.NewDecoder(resp.Body).Decode(&receipt); err != nil && !errors.Is(err, io.EOF) {
+		return Receipt{}, fmt.Errorf("read send receipt: %w", err)
+	}
+	return receipt, nil
+}
+
+func Handler(inbox FileInbox) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc(SessionsPath, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		defer r.Body.Close()
+
+		captured, err := session.ReadJSON(io.LimitReader(r.Body, 10<<20))
+		if err != nil {
+			http.Error(w, "invalid session: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		receipt, err := inbox.Save(r.Context(), captured)
+		if err != nil {
+			http.Error(w, "store session: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(receipt)
+	})
+	return mux
+}
+
+type FileInbox struct {
+	Dir string
+}
+
+func (i FileInbox) Save(ctx context.Context, captured session.Session) (Receipt, error) {
+	select {
+	case <-ctx.Done():
+		return Receipt{}, ctx.Err()
+	default:
+	}
+
+	dir := i.Dir
+	if strings.TrimSpace(dir) == "" {
+		dir = filepath.Join(".staterelay", "inbox")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return Receipt{}, fmt.Errorf("create inbox: %w", err)
+	}
+
+	base := sessionFileBase(captured)
+	for attempt := 0; attempt < 1000; attempt++ {
+		id := base
+		if attempt > 0 {
+			id += "-" + strconv.Itoa(attempt+1)
+		}
+		path := filepath.Join(dir, id+".json")
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return Receipt{}, fmt.Errorf("create %s: %w", path, err)
+		}
+
+		writeErr := session.WriteJSON(file, captured)
+		closeErr := file.Close()
+		if writeErr != nil {
+			return Receipt{}, fmt.Errorf("write %s: %w", path, writeErr)
+		}
+		if closeErr != nil {
+			return Receipt{}, fmt.Errorf("close %s: %w", path, closeErr)
+		}
+		return Receipt{ID: id, Message: "session stored"}, nil
+	}
+
+	return Receipt{}, fmt.Errorf("could not allocate session file name")
+}
+
+func (c Client) client() *http.Client {
+	if c.HTTPClient != nil {
+		return c.HTTPClient
+	}
+	return defaultHTTPClient
+}
+
+func sessionEndpoint(target string) (string, error) {
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return "", fmt.Errorf("parse target: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("target must start with http:// or https://")
+	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("target host is required")
+	}
+	if parsed.Path == "" || parsed.Path == "/" {
+		parsed.Path = SessionsPath
+	}
+	return parsed.String(), nil
+}
+
+func sessionFileBase(captured session.Session) string {
+	commit := captured.Git.Commit
+	if len(commit) > 12 {
+		commit = commit[:12]
+	}
+	return captured.CapturedAt.UTC().Format("20060102T150405Z") + "-" + slug(captured.Git.Name) + "-" + slug(commit)
+}
+
+func slug(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var out strings.Builder
+	lastDash := false
+	for _, r := range value {
+		ok := r >= 'a' && r <= 'z' || r >= '0' && r <= '9'
+		if ok {
+			out.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			out.WriteByte('-')
+			lastDash = true
+		}
+	}
+	return strings.Trim(out.String(), "-")
+}
