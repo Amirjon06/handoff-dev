@@ -317,6 +317,83 @@ func TestRestoreAcceptsPathOverride(t *testing.T) {
 	}
 }
 
+func TestRestoreUsesLatestInboxSession(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	inbox := t.TempDir()
+	older := session.New("test-machine", gitstate.State{
+		Root:   "/source/older",
+		Name:   "older",
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+	}, time.Date(2026, 8, 15, 18, 0, 0, 0, time.UTC))
+	newer := session.New("test-machine", gitstate.State{
+		Root:   "/source/newer",
+		Name:   "staterelay",
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+	}, time.Date(2026, 8, 15, 20, 0, 0, 0, time.UTC))
+	writeSessionFileAt(t, filepath.Join(inbox, "older.json"), older)
+	writeSessionFileAt(t, filepath.Join(inbox, "newer.json"), newer)
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"restore", "--path", repoRoot, "--inbox", inbox, "latest"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"Session file: " + filepath.Join(inbox, "newer.json"),
+		"Git root: /source/newer",
+		"Git name: staterelay",
+		"Git commit: " + commit,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("restore output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRestoreUsesNamedInboxSession(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	inbox := t.TempDir()
+	captured := session.New("test-machine", gitstate.State{
+		Root:   "/source/named",
+		Name:   "staterelay",
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+	}, time.Date(2026, 8, 15, 20, 0, 0, 0, time.UTC))
+	writeSessionFileAt(t, filepath.Join(inbox, "received.json"), captured)
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"restore", "--path", repoRoot, "--inbox", inbox, "received"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	got := stdout.String()
+	if !strings.Contains(got, "Session file: "+filepath.Join(inbox, "received.json")) {
+		t.Fatalf("restore output missing named inbox path:\n%s", got)
+	}
+}
+
+func TestRestoreRejectsEmptyInbox(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	inbox := filepath.Join(t.TempDir(), "missing")
+	var stdout bytes.Buffer
+
+	err := run(context.Background(), []string{"restore", "--path", repoRoot, "--inbox", inbox, "latest"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error for empty inbox")
+	}
+	if err.Error() != "no received sessions in "+inbox {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestRestoreRejectsMissingGitRoot(t *testing.T) {
 	path := writeTestSession(t, t.TempDir(), "faaf307bf4fa86c316586804bf88f3096511aabd")
 
@@ -656,6 +733,19 @@ func writeTestSessionWithEditor(t *testing.T, root string, git gitstate.State, e
 	}
 
 	return file.Name()
+}
+
+func writeSessionFileAt(t *testing.T, path string, captured session.Session) {
+	t.Helper()
+
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	defer file.Close()
+	if err := session.WriteJSON(file, captured); err != nil {
+		t.Fatalf("WriteJSON returned error: %v", err)
+	}
 }
 
 func writeTestEditorState(t *testing.T, root string) {

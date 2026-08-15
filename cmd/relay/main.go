@@ -231,6 +231,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	apply := fs.Bool("apply", false, "write captured file snapshots after validation")
 	dryRun := fs.Bool("dry-run", false, "validate apply without writing captured file snapshots")
 	path := fs.String("path", "", "project path to restore into")
+	inbox := fs.String("inbox", "", "directory for received sessions; use latest as the session name")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -240,7 +241,12 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("restore requires a session JSON file")
 	}
 
-	captured, err := readSessionFile(fs.Arg(0))
+	sessionPath, err := resolveRestoreSession(ctx, fs.Arg(0), *inbox)
+	if err != nil {
+		return err
+	}
+
+	captured, err := readSessionFile(sessionPath)
 	if err != nil {
 		return err
 	}
@@ -304,6 +310,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 
 	fmt.Fprintln(stdout, "Restore plan")
+	fmt.Fprintf(stdout, "Session file: %s\n", sessionPath)
 	fmt.Fprintf(stdout, "Git root: %s\n", captured.Git.Root)
 	if *path != "" {
 		fmt.Fprintf(stdout, "Restore root: %s\n", verifiedRoot)
@@ -325,6 +332,34 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	printEditorState(stdout, captured.Editor)
 	return nil
+}
+
+func resolveRestoreSession(ctx context.Context, name string, inbox string) (string, error) {
+	if inbox == "" && name != "latest" {
+		return name, nil
+	}
+
+	inboxDir := inbox
+	if inboxDir == "" {
+		inboxDir = filepath.Join(".staterelay", "inbox")
+	}
+
+	entries, err := transport.FileInbox{Dir: inboxDir}.List(ctx)
+	if err != nil {
+		return "", err
+	}
+	if len(entries) == 0 {
+		return "", fmt.Errorf("no received sessions in %s", inboxDir)
+	}
+	if name == "latest" {
+		return entries[0].Path, nil
+	}
+	for _, entry := range entries {
+		if entry.Name == name || strings.TrimSuffix(entry.Name, ".json") == name {
+			return entry.Path, nil
+		}
+	}
+	return "", fmt.Errorf("received session %s not found in %s", name, inboxDir)
 }
 
 func readSessionFile(path string) (session.Session, error) {
@@ -460,7 +495,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  relay capture [--path PATH] [--json] [--out FILE]")
-	fmt.Fprintln(w, "  relay restore [--path PATH] [--apply] [--dry-run] SESSION_FILE")
+	fmt.Fprintln(w, "  relay restore [--path PATH] [--inbox DIR] [--apply] [--dry-run] SESSION_FILE|latest")
 	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR]")
 	fmt.Fprintln(w, "  relay inbox [--inbox DIR]")
 	fmt.Fprintln(w, "  relay send --to URL SESSION_FILE")
