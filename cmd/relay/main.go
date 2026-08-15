@@ -21,6 +21,7 @@ import (
 	"github.com/Amirjon06/handoff-dev/internal/session"
 	"github.com/Amirjon06/handoff-dev/internal/terminalstate"
 	"github.com/Amirjon06/handoff-dev/internal/transport"
+	"github.com/Amirjon06/handoff-dev/internal/truststore"
 )
 
 const version = "0.1.0-dev"
@@ -62,6 +63,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runBrowser(ctx, args[1:], stdout)
 	case "identity":
 		return runIdentity(ctx, args[1:], stdout)
+	case "trust":
+		return runTrust(ctx, args[1:], stdout)
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return nil
@@ -71,6 +74,133 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runTrust(ctx context.Context, args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("trust requires a subcommand: add, list, or remove")
+	}
+	switch args[0] {
+	case "add":
+		return runTrustAdd(ctx, args[1:], stdout)
+	case "list":
+		return runTrustList(ctx, args[1:], stdout)
+	case "remove":
+		return runTrustRemove(ctx, args[1:], stdout)
+	default:
+		return fmt.Errorf("unknown trust subcommand %q", args[0])
+	}
+}
+
+func runTrustAdd(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("trust add", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	path := fs.String("path", ".", "workspace path")
+	name := fs.String("name", "", "trusted device name")
+	fingerprint := fs.String("fingerprint", "", "trusted device fingerprint")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("trust add does not accept positional arguments")
+	}
+
+	root, err := gitstate.Root(ctx, *path)
+	if err != nil {
+		return fmt.Errorf("find workspace root: %w", err)
+	}
+	storePath := truststore.Path(root)
+	store, err := truststore.Load(storePath)
+	if err != nil {
+		return err
+	}
+	store, added, err := truststore.Add(store, *name, *fingerprint, time.Now())
+	if err != nil {
+		return err
+	}
+	if err := truststore.Save(storePath, store); err != nil {
+		return err
+	}
+	if added {
+		fmt.Fprintln(stdout, "Added trusted device")
+	} else {
+		fmt.Fprintln(stdout, "Updated trusted device")
+	}
+	fmt.Fprintf(stdout, "Name: %s\n", strings.TrimSpace(*name))
+	fmt.Fprintf(stdout, "Fingerprint: %s\n", strings.ToLower(strings.TrimSpace(*fingerprint)))
+	fmt.Fprintf(stdout, "Path: %s\n", storePath)
+	return nil
+}
+
+func runTrustList(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("trust list", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	path := fs.String("path", ".", "workspace path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("trust list does not accept positional arguments")
+	}
+
+	root, err := gitstate.Root(ctx, *path)
+	if err != nil {
+		return fmt.Errorf("find workspace root: %w", err)
+	}
+	store, err := truststore.Load(truststore.Path(root))
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(stdout, "Trusted devices: %d\n", len(store.Devices))
+	if len(store.Devices) == 0 {
+		fmt.Fprintln(stdout, "No trusted devices")
+		return nil
+	}
+	for _, device := range store.Devices {
+		fmt.Fprintf(stdout, "- %s %s\n", device.Name, device.Fingerprint)
+	}
+	return nil
+}
+
+func runTrustRemove(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("trust remove", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	path := fs.String("path", ".", "workspace path")
+	fingerprint := fs.String("fingerprint", "", "trusted device fingerprint")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("trust remove does not accept positional arguments")
+	}
+
+	root, err := gitstate.Root(ctx, *path)
+	if err != nil {
+		return fmt.Errorf("find workspace root: %w", err)
+	}
+	storePath := truststore.Path(root)
+	store, err := truststore.Load(storePath)
+	if err != nil {
+		return err
+	}
+	store, removed, err := truststore.Remove(store, *fingerprint)
+	if err != nil {
+		return err
+	}
+	if err := truststore.Save(storePath, store); err != nil {
+		return err
+	}
+	if removed {
+		fmt.Fprintln(stdout, "Removed trusted device")
+	} else {
+		fmt.Fprintln(stdout, "Trusted device not found")
+	}
+	fmt.Fprintf(stdout, "Fingerprint: %s\n", strings.ToLower(strings.TrimSpace(*fingerprint)))
+	return nil
 }
 
 func runIdentity(ctx context.Context, args []string, stdout io.Writer) error {
@@ -230,6 +360,12 @@ func runDoctor(ctx context.Context, args []string, stdout io.Writer) error {
 	} else {
 		return fmt.Errorf("check identity: %w", err)
 	}
+	store, err := truststore.Load(truststore.Path(state.Root))
+	if err != nil {
+		return fmt.Errorf("check trusted devices: %w", err)
+	}
+	fmt.Fprintln(stdout, "Trusted devices: ok")
+	fmt.Fprintf(stdout, "  count: %d\n", len(store.Devices))
 
 	if *target == "" {
 		fmt.Fprintln(stdout, "Listener: skipped")
@@ -879,6 +1015,9 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  relay terminal [--path PATH] [--cwd DIR]")
 	fmt.Fprintln(w, "  relay browser [--path PATH] --url URL [--url URL...]")
 	fmt.Fprintln(w, "  relay identity [--path PATH] [--name NAME]")
+	fmt.Fprintln(w, "  relay trust add --name NAME --fingerprint FINGERPRINT [--path PATH]")
+	fmt.Fprintln(w, "  relay trust list [--path PATH]")
+	fmt.Fprintln(w, "  relay trust remove --fingerprint FINGERPRINT [--path PATH]")
 	fmt.Fprintln(w, "  relay ping --to URL")
 	fmt.Fprintln(w, "  relay send --to URL SESSION_FILE")
 	fmt.Fprintln(w, "  relay version")

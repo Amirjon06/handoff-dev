@@ -81,7 +81,7 @@ Goal: make the network flow usable and trustworthy.
 - mDNS discovery
 - local Ed25519 device identity
 - verification codes
-- trusted device storage
+- trusted device storage with `relay trust`
 - TLS encryption
 
 ## Phase 9: Project Quality

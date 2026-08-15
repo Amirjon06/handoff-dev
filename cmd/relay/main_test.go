@@ -18,7 +18,10 @@ import (
 	"github.com/Amirjon06/handoff-dev/internal/session"
 	"github.com/Amirjon06/handoff-dev/internal/terminalstate"
 	"github.com/Amirjon06/handoff-dev/internal/transport"
+	"github.com/Amirjon06/handoff-dev/internal/truststore"
 )
+
+const testFingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func TestVersionCommand(t *testing.T) {
 	var stdout bytes.Buffer
@@ -165,6 +168,81 @@ func TestIdentityCommandRejectsPositionals(t *testing.T) {
 	}
 }
 
+func TestTrustCommandAddsListsAndRemovesDevice(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+
+	var added bytes.Buffer
+	err := run(context.Background(), []string{"trust", "add", "--path", repoRoot, "--name", "windows-pc", "--fingerprint", testFingerprint}, &added)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	if !strings.Contains(added.String(), "Added trusted device") {
+		t.Fatalf("stdout missing added message:\n%s", added.String())
+	}
+	store, err := truststore.Load(truststore.Path(repoRoot))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(store.Devices) != 1 {
+		t.Fatalf("device count = %d, want 1", len(store.Devices))
+	}
+	if store.Devices[0].Name != "windows-pc" {
+		t.Fatalf("device name = %q", store.Devices[0].Name)
+	}
+
+	var listed bytes.Buffer
+	err = run(context.Background(), []string{"trust", "list", "--path", repoRoot}, &listed)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	for _, want := range []string{
+		"Trusted devices: 1",
+		"- windows-pc " + testFingerprint,
+	} {
+		if !strings.Contains(listed.String(), want) {
+			t.Fatalf("trust list missing %q:\n%s", want, listed.String())
+		}
+	}
+
+	var removed bytes.Buffer
+	err = run(context.Background(), []string{"trust", "remove", "--path", repoRoot, "--fingerprint", testFingerprint}, &removed)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	if !strings.Contains(removed.String(), "Removed trusted device") {
+		t.Fatalf("stdout missing removed message:\n%s", removed.String())
+	}
+	store, err = truststore.Load(truststore.Path(repoRoot))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(store.Devices) != 0 {
+		t.Fatalf("device count = %d, want 0", len(store.Devices))
+	}
+}
+
+func TestTrustCommandRejectsUnknownSubcommand(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"trust", "show"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error for unknown trust subcommand")
+	}
+	if err.Error() != `unknown trust subcommand "show"` {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestTrustCommandRequiresSubcommand(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"trust"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error without trust subcommand")
+	}
+	if err.Error() != "trust requires a subcommand: add, list, or remove" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestDoctorPrintsRepositoryAndInboxStatus(t *testing.T) {
 	repoRoot, commit := initGitRepo(t)
 	verifiedRoot := strings.TrimSpace(runGit(t, repoRoot, "rev-parse", "--show-toplevel"))
@@ -188,6 +266,8 @@ func TestDoctorPrintsRepositoryAndInboxStatus(t *testing.T) {
 		"  path: " + inbox,
 		"  sessions: 0",
 		"Identity: missing",
+		"Trusted devices: ok",
+		"  count: 0",
 		"Listener: skipped",
 	} {
 		if !strings.Contains(got, want) {
@@ -222,6 +302,29 @@ func TestDoctorPrintsIdentityStatus(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestDoctorPrintsTrustedDeviceCount(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	var trustOut bytes.Buffer
+	err := run(context.Background(), []string{"trust", "add", "--path", repoRoot, "--name", "windows-pc", "--fingerprint", testFingerprint}, &trustOut)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err = run(context.Background(), []string{"doctor", "--path", repoRoot}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	for _, want := range []string{
+		"Trusted devices: ok",
+		"  count: 1",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, stdout.String())
 		}
 	}
 }

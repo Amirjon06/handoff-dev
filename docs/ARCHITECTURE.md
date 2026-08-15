@@ -29,6 +29,7 @@ The Go agent owns:
 - session serialization
 - local state file reads and writes
 - local device identity
+- trusted-device fingerprint storage
 - HTTP networking
 - restore orchestration
 
