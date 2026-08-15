@@ -311,9 +311,13 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	path := fs.String("path", "", "project path to restore into")
 	cloneDir := fs.String("clone-dir", "", "clone missing repository into this parent directory")
 	inbox := fs.String("inbox", "", "directory for received sessions; use latest as the session name")
+	conflict := fs.String("conflict", "reject", "conflict strategy: reject or keep-both")
 
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *conflict != "reject" && *conflict != "keep-both" {
+		return fmt.Errorf("unknown conflict strategy %q", *conflict)
 	}
 
 	if fs.NArg() != 1 {
@@ -366,11 +370,11 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("verify working tree: %w", err)
 		}
-		if currentState.Dirty {
+		if currentState.Dirty && *conflict == "reject" {
 			return fmt.Errorf("refusing to apply over dirty working tree: %s", formatChangedFiles(currentState.ChangedFiles))
 		}
 		if *dryRun {
-			result, err := planApplyFiles(verifiedRoot, captured.Git.ChangedFiles)
+			result, err := planApplyFiles(verifiedRoot, captured.Git.ChangedFiles, currentState.ChangedFiles, *conflict)
 			if err != nil {
 				return err
 			}
@@ -378,7 +382,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 			printEditorApplyResult(stdout, "Would restore", captured.Editor)
 			return nil
 		}
-		result, err := applyChangedFiles(verifiedRoot, captured.Git.ChangedFiles)
+		result, err := applyChangedFiles(verifiedRoot, captured.Git.ChangedFiles, currentState.ChangedFiles, *conflict)
 		if err != nil {
 			return err
 		}
@@ -514,12 +518,19 @@ func formatChangedFiles(files []gitstate.ChangedFile) string {
 }
 
 type applyResult struct {
-	applied []gitstate.ChangedFile
-	skipped []gitstate.ChangedFile
+	applied   []gitstate.ChangedFile
+	skipped   []gitstate.ChangedFile
+	conflicts []conflictCopy
 }
 
-func planApplyFiles(root string, files []gitstate.ChangedFile) (applyResult, error) {
+type conflictCopy struct {
+	file gitstate.ChangedFile
+	path string
+}
+
+func planApplyFiles(root string, files []gitstate.ChangedFile, localFiles []gitstate.ChangedFile, conflict string) (applyResult, error) {
 	var result applyResult
+	localChanged := changedPathSet(localFiles)
 
 	for _, file := range files {
 		if !file.ContentCaptured {
@@ -527,7 +538,8 @@ func planApplyFiles(root string, files []gitstate.ChangedFile) (applyResult, err
 			continue
 		}
 
-		if _, ok := safePath(root, file.Path); !ok {
+		path, ok := safePath(root, file.Path)
+		if !ok {
 			return result, fmt.Errorf("unsafe changed file path %s", file.Path)
 		}
 		if file.ContentSHA256 == "" {
@@ -536,14 +548,22 @@ func planApplyFiles(root string, files []gitstate.ChangedFile) (applyResult, err
 		if sha256Hex([]byte(file.Content)) != file.ContentSHA256 {
 			return result, fmt.Errorf("changed file %s content hash mismatch", file.Path)
 		}
+		if conflict == "keep-both" && localChanged[file.Path] {
+			copyPath, err := nextConflictCopyPath(path)
+			if err != nil {
+				return result, err
+			}
+			result.conflicts = append(result.conflicts, conflictCopy{file: file, path: copyPath})
+			continue
+		}
 		result.applied = append(result.applied, file)
 	}
 
 	return result, nil
 }
 
-func applyChangedFiles(root string, files []gitstate.ChangedFile) (applyResult, error) {
-	result, err := planApplyFiles(root, files)
+func applyChangedFiles(root string, files []gitstate.ChangedFile, localFiles []gitstate.ChangedFile, conflict string) (applyResult, error) {
+	result, err := planApplyFiles(root, files, localFiles, conflict)
 	if err != nil {
 		return result, err
 	}
@@ -557,6 +577,14 @@ func applyChangedFiles(root string, files []gitstate.ChangedFile) (applyResult, 
 			return result, fmt.Errorf("write changed file %s: %w", file.Path, err)
 		}
 	}
+	for _, copy := range result.conflicts {
+		if err := os.MkdirAll(filepath.Dir(copy.path), 0o755); err != nil {
+			return result, fmt.Errorf("create parent directory for conflict copy %s: %w", copy.file.Path, err)
+		}
+		if err := os.WriteFile(copy.path, []byte(copy.file.Content), 0o644); err != nil {
+			return result, fmt.Errorf("write conflict copy for %s: %w", copy.file.Path, err)
+		}
+	}
 
 	return result, nil
 }
@@ -566,6 +594,40 @@ func printApplyResult(stdout io.Writer, action string, result applyResult) {
 	if len(result.skipped) > 0 {
 		fmt.Fprintf(stdout, "Skipped %d changed file(s) without captured content: %s\n", len(result.skipped), formatChangedFiles(result.skipped))
 	}
+	if len(result.conflicts) > 0 {
+		conflictAction := "Kept"
+		if strings.HasPrefix(action, "Would ") {
+			conflictAction = "Would keep"
+		}
+		fmt.Fprintf(stdout, "%s %d conflict copy/copies\n", conflictAction, len(result.conflicts))
+		for _, copy := range result.conflicts {
+			fmt.Fprintf(stdout, "Conflict copy: %s -> %s\n", copy.file.Path, copy.path)
+		}
+	}
+}
+
+func changedPathSet(files []gitstate.ChangedFile) map[string]bool {
+	paths := make(map[string]bool, len(files))
+	for _, file := range files {
+		paths[file.Path] = true
+	}
+	return paths
+}
+
+func nextConflictCopyPath(path string) (string, error) {
+	first := path + ".staterelay-source"
+	for attempt := 0; attempt < 1000; attempt++ {
+		candidate := first
+		if attempt > 0 {
+			candidate = fmt.Sprintf("%s.%d", first, attempt+1)
+		}
+		if _, err := os.Stat(candidate); errors.Is(err, os.ErrNotExist) {
+			return candidate, nil
+		} else if err != nil {
+			return "", fmt.Errorf("inspect conflict copy path %s: %w", candidate, err)
+		}
+	}
+	return "", fmt.Errorf("could not allocate conflict copy path for %s", path)
 }
 
 func printEditorState(stdout io.Writer, editor *editorstate.State) {
@@ -620,7 +682,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  relay capture [--path PATH] [--json] [--out FILE]")
-	fmt.Fprintln(w, "  relay restore [--path PATH] [--clone-dir DIR] [--inbox DIR] [--apply] [--dry-run] SESSION_FILE|latest")
+	fmt.Fprintln(w, "  relay restore [--path PATH] [--clone-dir DIR] [--inbox DIR] [--apply] [--dry-run] [--conflict reject|keep-both] SESSION_FILE|latest")
 	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR]")
 	fmt.Fprintln(w, "  relay inbox [--inbox DIR]")
 	fmt.Fprintln(w, "  relay doctor [--path PATH] [--inbox DIR] [--to URL]")

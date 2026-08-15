@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -742,6 +743,170 @@ func TestRestoreApplyDryRunDoesNotWriteFiles(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stdout missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestRestoreApplyKeepsBothOnConflict(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	verifiedRoot := strings.TrimSpace(runGit(t, repoRoot, "rev-parse", "--show-toplevel"))
+	if err := os.WriteFile(repoRoot+"/README.md", []byte("# Local change\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	incoming := "# Incoming change\n"
+	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+		Root:   repoRoot,
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+		Dirty:  true,
+		ChangedFiles: []gitstate.ChangedFile{
+			{
+				Path:            "README.md",
+				Status:          "modified",
+				Size:            int64(len(incoming)),
+				ContentCaptured: true,
+				ContentEncoding: "utf-8",
+				ContentSHA256:   sha256Hex([]byte(incoming)),
+				Content:         incoming,
+			},
+		},
+	})
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"restore", "--apply", "--conflict", "keep-both", path}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	localContent, err := os.ReadFile(repoRoot + "/README.md")
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if string(localContent) != "# Local change\n" {
+		t.Fatalf("README content = %q", localContent)
+	}
+	copyPath := verifiedRoot + "/README.md.staterelay-source"
+	copyContent, err := os.ReadFile(copyPath)
+	if err != nil {
+		t.Fatalf("ReadFile conflict copy returned error: %v", err)
+	}
+	if string(copyContent) != incoming {
+		t.Fatalf("conflict copy content = %q", copyContent)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"Applied 0 changed file(s)",
+		"Kept 1 conflict copy/copies",
+		"Conflict copy: README.md -> " + copyPath,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRestoreApplyKeepBothDryRunDoesNotWriteConflictCopy(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	if err := os.WriteFile(repoRoot+"/README.md", []byte("# Local change\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	incoming := "# Incoming change\n"
+	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+		Root:   repoRoot,
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+		Dirty:  true,
+		ChangedFiles: []gitstate.ChangedFile{
+			{
+				Path:            "README.md",
+				Status:          "modified",
+				Size:            int64(len(incoming)),
+				ContentCaptured: true,
+				ContentEncoding: "utf-8",
+				ContentSHA256:   sha256Hex([]byte(incoming)),
+				Content:         incoming,
+			},
+		},
+	})
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"restore", "--apply", "--dry-run", "--conflict", "keep-both", path}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	if _, err := os.Stat(repoRoot + "/README.md.staterelay-source"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("conflict copy stat error = %v, want not exist", err)
+	}
+
+	got := stdout.String()
+	if !strings.Contains(got, "Would keep 1 conflict copy/copies") {
+		t.Fatalf("stdout missing dry-run conflict copy:\n%s", got)
+	}
+}
+
+func TestRestoreApplyKeepBothDoesNotOverwriteExistingConflictCopy(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	if err := os.WriteFile(repoRoot+"/README.md", []byte("# Local change\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	if err := os.WriteFile(repoRoot+"/README.md.staterelay-source", []byte("# Earlier copy\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	incoming := "# Incoming change\n"
+	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+		Root:   repoRoot,
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+		Dirty:  true,
+		ChangedFiles: []gitstate.ChangedFile{
+			{
+				Path:            "README.md",
+				Status:          "modified",
+				Size:            int64(len(incoming)),
+				ContentCaptured: true,
+				ContentEncoding: "utf-8",
+				ContentSHA256:   sha256Hex([]byte(incoming)),
+				Content:         incoming,
+			},
+		},
+	})
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"restore", "--apply", "--conflict", "keep-both", path}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	earlier, err := os.ReadFile(repoRoot + "/README.md.staterelay-source")
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if string(earlier) != "# Earlier copy\n" {
+		t.Fatalf("earlier conflict copy = %q", earlier)
+	}
+	next, err := os.ReadFile(repoRoot + "/README.md.staterelay-source.2")
+	if err != nil {
+		t.Fatalf("ReadFile numbered conflict copy returned error: %v", err)
+	}
+	if string(next) != incoming {
+		t.Fatalf("numbered conflict copy = %q", next)
+	}
+}
+
+func TestRestoreRejectsUnknownConflictStrategy(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	path := writeTestSession(t, repoRoot, commit)
+	var stdout bytes.Buffer
+
+	err := run(context.Background(), []string{"restore", "--conflict", "merge", path}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error for unknown conflict strategy")
+	}
+	if err.Error() != `unknown conflict strategy "merge"` {
+		t.Fatalf("error = %q", err.Error())
 	}
 }
 

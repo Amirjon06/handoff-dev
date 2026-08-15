@@ -71,6 +71,7 @@ Goal: protect destination changes.
 - detect when source and destination both changed the same file
 - offer conflict strategies
 - keep both versions when uncertain
+- preserve local files with `--conflict keep-both`
 
 ## Phase 8: Device Discovery and Pairing
 
