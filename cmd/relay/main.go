@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Amirjon06/handoff-dev/internal/browserstate"
 	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/session"
@@ -56,6 +57,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runDoctor(ctx, args[1:], stdout)
 	case "terminal":
 		return runTerminal(ctx, args[1:], stdout)
+	case "browser":
+		return runBrowser(ctx, args[1:], stdout)
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return nil
@@ -65,6 +68,51 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+type stringListFlag []string
+
+func (f *stringListFlag) String() string {
+	if f == nil {
+		return ""
+	}
+	return strings.Join(*f, ",")
+}
+
+func (f *stringListFlag) Set(value string) error {
+	*f = append(*f, value)
+	return nil
+}
+
+func runBrowser(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("browser", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	path := fs.String("path", ".", "workspace path")
+	var urls stringListFlag
+	fs.Var(&urls, "url", "browser URL to record; repeat for multiple tabs")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("browser does not accept positional arguments")
+	}
+
+	root, err := gitstate.Root(ctx, *path)
+	if err != nil {
+		return fmt.Errorf("find workspace root: %w", err)
+	}
+	state, err := browserstate.Capture(urls, time.Now())
+	if err != nil {
+		return err
+	}
+	if err := browserstate.WriteWorkspace(root, &state); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(stdout, "Captured browser state to %s\n", filepath.Join(root, ".staterelay", "browser-state.json"))
+	fmt.Fprintf(stdout, "Browser tabs: %d\n", len(state.Tabs))
+	return nil
 }
 
 func runTerminal(ctx context.Context, args []string, stdout io.Writer) error {
@@ -271,6 +319,9 @@ func runInbox(ctx context.Context, args []string, stdout io.Writer) error {
 		if captured.Terminal != nil {
 			fmt.Fprintf(stdout, "  terminal directories: %d\n", len(captured.Terminal.WorkingDirectories))
 		}
+		if captured.Browser != nil {
+			fmt.Fprintf(stdout, "  browser tabs: %d\n", len(captured.Browser.Tabs))
+		}
 	}
 	return nil
 }
@@ -299,13 +350,17 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("read terminal state: %w", err)
 	}
+	browser, err := browserstate.ReadWorkspace(state.Root)
+	if err != nil {
+		return fmt.Errorf("read browser state: %w", err)
+	}
 
 	if *jsonOutput || *out != "" {
 		hostname, err := os.Hostname()
 		if err != nil {
 			hostname = "unknown"
 		}
-		captured := session.NewWithWorkspace(hostname, state, editor, terminal, time.Now())
+		captured := session.NewWithWorkspace(hostname, state, editor, terminal, browser, time.Now())
 
 		if *out == "" {
 			return session.WriteJSON(stdout, captured)
@@ -340,6 +395,7 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	printEditorState(stdout, editor)
 	printTerminalState(stdout, terminal)
+	printBrowserState(stdout, browser)
 	return nil
 }
 
@@ -422,6 +478,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 			printApplyResult(stdout, "Would apply", result)
 			printEditorApplyResult(stdout, "Would restore", captured.Editor)
 			printTerminalApplyResult(stdout, "Would restore", captured.Terminal)
+			printBrowserApplyResult(stdout, "Would restore", captured.Browser)
 			return nil
 		}
 		result, err := applyChangedFiles(verifiedRoot, captured.Git.ChangedFiles, currentState.ChangedFiles, *conflict)
@@ -434,9 +491,13 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 		if err := terminalstate.WriteWorkspace(verifiedRoot, captured.Terminal); err != nil {
 			return err
 		}
+		if err := browserstate.WriteWorkspace(verifiedRoot, captured.Browser); err != nil {
+			return err
+		}
 		printApplyResult(stdout, "Applied", result)
 		printEditorApplyResult(stdout, "Restored", captured.Editor)
 		printTerminalApplyResult(stdout, "Restored", captured.Terminal)
+		printBrowserApplyResult(stdout, "Restored", captured.Browser)
 		return nil
 	}
 
@@ -469,6 +530,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	printEditorState(stdout, captured.Editor)
 	printTerminalState(stdout, captured.Terminal)
+	printBrowserState(stdout, captured.Browser)
 	return nil
 }
 
@@ -708,6 +770,20 @@ func printTerminalApplyResult(stdout io.Writer, action string, terminal *termina
 	fmt.Fprintf(stdout, "%s terminal directories: %d\n", action, len(terminal.WorkingDirectories))
 }
 
+func printBrowserState(stdout io.Writer, browser *browserstate.State) {
+	if browser == nil {
+		return
+	}
+	fmt.Fprintf(stdout, "Browser tabs: %d\n", len(browser.Tabs))
+}
+
+func printBrowserApplyResult(stdout io.Writer, action string, browser *browserstate.State) {
+	if browser == nil {
+		return
+	}
+	fmt.Fprintf(stdout, "%s browser tabs: %d\n", action, len(browser.Tabs))
+}
+
 func sha256Hex(content []byte) string {
 	sum := sha256.Sum256(content)
 	return hex.EncodeToString(sum[:])
@@ -748,6 +824,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  relay inbox [--inbox DIR]")
 	fmt.Fprintln(w, "  relay doctor [--path PATH] [--inbox DIR] [--to URL]")
 	fmt.Fprintln(w, "  relay terminal [--path PATH] [--cwd DIR]")
+	fmt.Fprintln(w, "  relay browser [--path PATH] --url URL [--url URL...]")
 	fmt.Fprintln(w, "  relay ping --to URL")
 	fmt.Fprintln(w, "  relay send --to URL SESSION_FILE")
 	fmt.Fprintln(w, "  relay version")

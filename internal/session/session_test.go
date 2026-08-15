@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Amirjon06/handoff-dev/internal/browserstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/terminalstate"
 )
@@ -55,7 +56,7 @@ func TestSessionJSONRoundTripWithTerminalState(t *testing.T) {
 		WorkingDirectories: []terminalstate.Directory{
 			{Path: "."},
 		},
-	}, capturedAt)
+	}, nil, capturedAt)
 
 	var buf bytes.Buffer
 	if err := WriteJSON(&buf, original); err != nil {
@@ -71,6 +72,39 @@ func TestSessionJSONRoundTripWithTerminalState(t *testing.T) {
 	}
 	if got.Terminal.WorkingDirectories[0].Path != "." {
 		t.Fatalf("terminal path = %q", got.Terminal.WorkingDirectories[0].Path)
+	}
+}
+
+func TestSessionJSONRoundTripWithBrowserState(t *testing.T) {
+	capturedAt := time.Date(2026, 8, 15, 22, 0, 0, 0, time.UTC)
+	original := NewWithWorkspace("amir-macbook", gitstate.State{
+		Name:   "handoff-dev",
+		Root:   "/Users/amir/projects/handoff-dev",
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: "faaf307bf4fa86c316586804bf88f3096511aabd",
+	}, nil, nil, &browserstate.State{
+		SchemaVersion: browserstate.SchemaVersion,
+		CapturedAt:    "2026-08-15T22:00:00Z",
+		Tabs: []browserstate.Tab{
+			{URL: "https://go.dev/doc/"},
+		},
+	}, capturedAt)
+
+	var buf bytes.Buffer
+	if err := WriteJSON(&buf, original); err != nil {
+		t.Fatalf("WriteJSON returned error: %v", err)
+	}
+
+	got, err := ReadJSON(strings.NewReader(buf.String()))
+	if err != nil {
+		t.Fatalf("ReadJSON returned error: %v", err)
+	}
+	if got.Browser == nil {
+		t.Fatal("browser state = nil")
+	}
+	if got.Browser.Tabs[0].URL != "https://go.dev/doc/" {
+		t.Fatalf("browser url = %q", got.Browser.Tabs[0].URL)
 	}
 }
 
@@ -104,6 +138,40 @@ func TestReadJSONRejectsUnsafeTerminalPath(t *testing.T) {
 		t.Fatal("ReadJSON returned nil error for unsafe terminal path")
 	}
 	if got := err.Error(); got != `session terminal: terminal state working_directories[0].path "../outside" is unsafe` {
+		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestReadJSONRejectsInvalidBrowserURL(t *testing.T) {
+	input := `{
+		"schema_version": 1,
+		"captured_at": "2026-08-10T18:30:00Z",
+		"source": {
+			"hostname": "amir-macbook",
+			"os": "darwin",
+			"arch": "arm64"
+		},
+		"git": {
+			"root": "/Users/amir/projects/handoff-dev",
+			"name": "handoff-dev",
+			"remote": "https://github.com/Amirjon06/handoff-dev.git",
+			"branch": "main",
+			"commit": "faaf307bf4fa86c316586804bf88f3096511aabd"
+		},
+		"browser": {
+			"schema_version": 1,
+			"captured_at": "2026-08-15T22:00:00Z",
+			"tabs": [
+				{"url": "ftp://example.com/file"}
+			]
+		}
+	}`
+
+	_, err := ReadJSON(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("ReadJSON returned nil error for invalid browser URL")
+	}
+	if got := err.Error(); got != `session browser: browser state tabs[0].url: unsupported scheme "ftp"` {
 		t.Fatalf("error = %q", got)
 	}
 }

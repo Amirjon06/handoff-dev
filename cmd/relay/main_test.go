@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Amirjon06/handoff-dev/internal/browserstate"
 	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/session"
@@ -75,6 +76,44 @@ func TestTerminalCommandRejectsPositionals(t *testing.T) {
 		t.Fatal("run returned nil error with positional argument")
 	}
 	if err.Error() != "terminal does not accept positional arguments" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestBrowserCommandWritesWorkspaceState(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"browser", "--path", repoRoot, "--url", "https://go.dev/doc/", "--url", "http://localhost:8765/health"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	state, err := browserstate.ReadWorkspace(repoRoot)
+	if err != nil {
+		t.Fatalf("ReadWorkspace returned error: %v", err)
+	}
+	if state == nil {
+		t.Fatal("browser state = nil")
+	}
+	if len(state.Tabs) != 2 {
+		t.Fatalf("tab count = %d, want 2", len(state.Tabs))
+	}
+	if state.Tabs[0].URL != "https://go.dev/doc/" {
+		t.Fatalf("first URL = %q", state.Tabs[0].URL)
+	}
+	if !strings.Contains(stdout.String(), "Browser tabs: 2") {
+		t.Fatalf("stdout missing browser tab count:\n%s", stdout.String())
+	}
+}
+
+func TestBrowserCommandRejectsPositionals(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"browser", "extra"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error with positional argument")
+	}
+	if err.Error() != "browser does not accept positional arguments" {
 		t.Fatalf("error = %q", err.Error())
 	}
 }
@@ -386,6 +425,32 @@ func TestCaptureJSONIncludesTerminalState(t *testing.T) {
 	}
 	if captured.Terminal.WorkingDirectories[0].Path != "." {
 		t.Fatalf("working directory = %q", captured.Terminal.WorkingDirectories[0].Path)
+	}
+}
+
+func TestCaptureJSONIncludesBrowserState(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	writeTestBrowserState(t, repoRoot)
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"capture", "--path", repoRoot, "--json"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	captured, err := session.ReadJSON(strings.NewReader(stdout.String()))
+	if err != nil {
+		t.Fatalf("ReadJSON returned error: %v", err)
+	}
+
+	if captured.Browser == nil {
+		t.Fatal("browser state = nil")
+	}
+	if len(captured.Browser.Tabs) != 1 {
+		t.Fatalf("browser tab count = %d, want 1", len(captured.Browser.Tabs))
+	}
+	if captured.Browser.Tabs[0].URL != "https://go.dev/doc/" {
+		t.Fatalf("browser URL = %q", captured.Browser.Tabs[0].URL)
 	}
 }
 
@@ -820,7 +885,7 @@ func TestRestoreApplyWritesTerminalState(t *testing.T) {
 		Branch: "main",
 		Commit: commit,
 		Dirty:  true,
-	}, nil, testTerminalState())
+	}, nil, testTerminalState(), nil)
 
 	var stdout bytes.Buffer
 	err := run(context.Background(), []string{"restore", "--apply", path}, &stdout)
@@ -840,6 +905,37 @@ func TestRestoreApplyWritesTerminalState(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Restored terminal directories: 1") {
 		t.Fatalf("stdout missing terminal restore:\n%s", stdout.String())
+	}
+}
+
+func TestRestoreApplyWritesBrowserState(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	path := writeTestSessionWithWorkspace(t, repoRoot, gitstate.State{
+		Root:   repoRoot,
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+		Dirty:  true,
+	}, nil, nil, testBrowserState())
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"restore", "--apply", path}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	state, err := browserstate.ReadWorkspace(repoRoot)
+	if err != nil {
+		t.Fatalf("ReadWorkspace returned error: %v", err)
+	}
+	if state == nil {
+		t.Fatal("browser state = nil")
+	}
+	if state.Tabs[0].URL != "https://go.dev/doc/" {
+		t.Fatalf("browser URL = %q", state.Tabs[0].URL)
+	}
+	if !strings.Contains(stdout.String(), "Restored browser tabs: 1") {
+		t.Fatalf("stdout missing browser restore:\n%s", stdout.String())
 	}
 }
 
@@ -1157,10 +1253,10 @@ func writeTestSessionWithGit(t *testing.T, root string, git gitstate.State) stri
 func writeTestSessionWithEditor(t *testing.T, root string, git gitstate.State, editor *editorstate.State) string {
 	t.Helper()
 
-	return writeTestSessionWithWorkspace(t, root, git, editor, nil)
+	return writeTestSessionWithWorkspace(t, root, git, editor, nil, nil)
 }
 
-func writeTestSessionWithWorkspace(t *testing.T, root string, git gitstate.State, editor *editorstate.State, terminal *terminalstate.State) string {
+func writeTestSessionWithWorkspace(t *testing.T, root string, git gitstate.State, editor *editorstate.State, terminal *terminalstate.State, browser *browserstate.State) string {
 	t.Helper()
 
 	if git.Name == "" {
@@ -1173,7 +1269,7 @@ func writeTestSessionWithWorkspace(t *testing.T, root string, git gitstate.State
 	}
 	defer file.Close()
 
-	captured := session.NewWithWorkspace("test-machine", git, editor, terminal, time.Date(2026, 8, 10, 18, 30, 0, 0, time.UTC))
+	captured := session.NewWithWorkspace("test-machine", git, editor, terminal, browser, time.Date(2026, 8, 10, 18, 30, 0, 0, time.UTC))
 
 	if err := session.WriteJSON(file, captured); err != nil {
 		t.Fatalf("WriteJSON returned error: %v", err)
@@ -1217,6 +1313,24 @@ func testTerminalState() *terminalstate.State {
 		CapturedAt:    "2026-08-15T21:00:00Z",
 		WorkingDirectories: []terminalstate.Directory{
 			{Path: "."},
+		},
+	}
+}
+
+func writeTestBrowserState(t *testing.T, root string) {
+	t.Helper()
+
+	if err := browserstate.WriteWorkspace(root, testBrowserState()); err != nil {
+		t.Fatalf("WriteWorkspace returned error: %v", err)
+	}
+}
+
+func testBrowserState() *browserstate.State {
+	return &browserstate.State{
+		SchemaVersion: browserstate.SchemaVersion,
+		CapturedAt:    "2026-08-15T22:00:00Z",
+		Tabs: []browserstate.Tab{
+			{URL: "https://go.dev/doc/"},
 		},
 	}
 }

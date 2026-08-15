@@ -97,7 +97,8 @@ Goal: keep the project easy to verify and maintain.
 Goal: restore more of the user's working environment.
 
 - basic terminal working-directory capture and restore
-- browser tabs
+- basic browser tab URL capture and restore
+- automatic browser tab reopening
 - richer terminal session restore
 - project history
 - background service

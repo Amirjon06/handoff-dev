@@ -1,23 +1,23 @@
 # Architecture
 
-StateRelay is built around a small Go agent that talks to local integrations and peer devices.
+StateRelay is built around a small Go CLI and local state files that can later grow into a background agent.
 
 ```text
-            StateRelay Agent
+              relay CLI
                    |
-      +------------+------------+
-      |                         |
- VS Code extension       Browser extension
-      |                         |
-      +------------+------------+
+      +------------+-------------+
+      |            |             |
+ VS Code state  Terminal state  Browser state
+      |            |             |
+      +------------+-------------+
                    |
               session JSON
                    |
-            local storage
+            local inbox
                    |
-           encrypted network
+            HTTP transfer
                    |
-            destination agent
+            destination CLI
 ```
 
 ## Core Ideas
@@ -27,9 +27,8 @@ The Go agent owns:
 - command-line interface
 - Git inspection
 - session serialization
-- local storage
-- networking
-- pairing and encryption
+- local state file reads and writes
+- HTTP networking
 - restore orchestration
 
 The VS Code extension owns:
@@ -42,20 +41,22 @@ The VS Code extension owns:
 
 The browser extension owns:
 
-- open URLs
-- active tab
-- window/tab grouping metadata
+- future automatic tab capture
+- future tab reopening
+- future window/tab grouping metadata
+
+The current Go CLI can record browser tab URLs manually with `relay browser --url`.
 
 ## MVP Boundary
 
-Version `0.1` should only prove this loop:
+Version `0.1` proves this loop:
 
 ```text
-capture Git state
+capture workspace state
     -> write session JSON
     -> read session JSON
-    -> print or perform restore actions
+    -> transfer over HTTP
+    -> validate and apply restore state
 ```
 
-After that, the next valuable step is VS Code state capture.
-
+Device discovery, pairing, encryption, and automatic browser restore are intentionally outside the current boundary.

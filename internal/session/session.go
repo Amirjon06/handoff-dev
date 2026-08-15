@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Amirjon06/handoff-dev/internal/browserstate"
 	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/terminalstate"
@@ -29,6 +30,7 @@ type Session struct {
 	Git           gitstate.State       `json:"git"`
 	Editor        *editorstate.State   `json:"editor,omitempty"`
 	Terminal      *terminalstate.State `json:"terminal,omitempty"`
+	Browser       *browserstate.State  `json:"browser,omitempty"`
 }
 
 func New(hostname string, git gitstate.State, capturedAt time.Time) Session {
@@ -50,9 +52,10 @@ func NewWithEditor(hostname string, git gitstate.State, editor *editorstate.Stat
 	return s
 }
 
-func NewWithWorkspace(hostname string, git gitstate.State, editor *editorstate.State, terminal *terminalstate.State, capturedAt time.Time) Session {
+func NewWithWorkspace(hostname string, git gitstate.State, editor *editorstate.State, terminal *terminalstate.State, browser *browserstate.State, capturedAt time.Time) Session {
 	s := NewWithEditor(hostname, git, editor, capturedAt)
 	s.Terminal = terminal
+	s.Browser = browser
 	return s
 }
 
@@ -107,6 +110,9 @@ func validate(s Session) error {
 	}
 	if err := terminalstate.Validate(s.Terminal); err != nil {
 		return fmt.Errorf("session terminal: %w", err)
+	}
+	if err := browserstate.Validate(s.Browser); err != nil {
+		return fmt.Errorf("session browser: %w", err)
 	}
 
 	return nil
