@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -103,6 +104,12 @@ type FileInbox struct {
 	Dir string
 }
 
+type InboxEntry struct {
+	Path    string
+	Name    string
+	Session session.Session
+}
+
 func (i FileInbox) Save(ctx context.Context, captured session.Session) (Receipt, error) {
 	select {
 	case <-ctx.Done():
@@ -110,10 +117,7 @@ func (i FileInbox) Save(ctx context.Context, captured session.Session) (Receipt,
 	default:
 	}
 
-	dir := i.Dir
-	if strings.TrimSpace(dir) == "" {
-		dir = filepath.Join(".staterelay", "inbox")
-	}
+	dir := i.dir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return Receipt{}, fmt.Errorf("create inbox: %w", err)
 	}
@@ -145,6 +149,68 @@ func (i FileInbox) Save(ctx context.Context, captured session.Session) (Receipt,
 	}
 
 	return Receipt{}, fmt.Errorf("could not allocate session file name")
+}
+
+func (i FileInbox) List(ctx context.Context) ([]InboxEntry, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	dir := i.dir()
+	files, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read inbox: %w", err)
+	}
+
+	entries := make([]InboxEntry, 0, len(files))
+	for _, file := range files {
+		if file.IsDir() || filepath.Ext(file.Name()) != ".json" {
+			continue
+		}
+
+		path := filepath.Join(dir, file.Name())
+		handle, err := os.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("open %s: %w", path, err)
+		}
+		captured, readErr := session.ReadJSON(handle)
+		closeErr := handle.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read %s: %w", path, readErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("close %s: %w", path, closeErr)
+		}
+
+		entries = append(entries, InboxEntry{
+			Path:    path,
+			Name:    file.Name(),
+			Session: captured,
+		})
+	}
+
+	sort.Slice(entries, func(i int, j int) bool {
+		left := entries[i].Session.CapturedAt
+		right := entries[j].Session.CapturedAt
+		if left.Equal(right) {
+			return entries[i].Name < entries[j].Name
+		}
+		return left.After(right)
+	})
+
+	return entries, nil
+}
+
+func (i FileInbox) dir() string {
+	if strings.TrimSpace(i.Dir) == "" {
+		return filepath.Join(".staterelay", "inbox")
+	}
+	return i.Dir
 }
 
 func (c Client) client() *http.Client {

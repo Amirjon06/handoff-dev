@@ -46,6 +46,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runSend(ctx, args[1:], stdout)
 	case "listen":
 		return runListen(ctx, args[1:], stdout)
+	case "inbox":
+		return runInbox(ctx, args[1:], stdout)
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return nil
@@ -118,6 +120,43 @@ func runListen(ctx context.Context, args []string, stdout io.Writer) error {
 	fmt.Fprintf(stdout, "Inbox: %s\n", *inbox)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
+	}
+	return nil
+}
+
+func runInbox(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("inbox", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	inbox := fs.String("inbox", filepath.Join(".staterelay", "inbox"), "directory for received sessions")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("inbox does not accept positional arguments")
+	}
+
+	entries, err := transport.FileInbox{Dir: *inbox}.List(ctx)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(stdout, "Inbox: %s\n", *inbox)
+	if len(entries) == 0 {
+		fmt.Fprintln(stdout, "No received sessions")
+		return nil
+	}
+	for _, entry := range entries {
+		captured := entry.Session
+		fmt.Fprintf(stdout, "%s\n", entry.Path)
+		fmt.Fprintf(stdout, "  repo: %s\n", captured.Git.Name)
+		fmt.Fprintf(stdout, "  branch: %s\n", captured.Git.Branch)
+		fmt.Fprintf(stdout, "  commit: %s\n", shortHash(captured.Git.Commit))
+		fmt.Fprintf(stdout, "  dirty: %t\n", captured.Git.Dirty)
+		fmt.Fprintf(stdout, "  changed files: %d\n", len(captured.Git.ChangedFiles))
+		if captured.Editor != nil {
+			fmt.Fprintf(stdout, "  editor files: %d\n", len(captured.Editor.OpenFiles))
+		}
 	}
 	return nil
 }
@@ -423,6 +462,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  relay capture [--path PATH] [--json] [--out FILE]")
 	fmt.Fprintln(w, "  relay restore [--path PATH] [--apply] [--dry-run] SESSION_FILE")
 	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR]")
+	fmt.Fprintln(w, "  relay inbox [--inbox DIR]")
 	fmt.Fprintln(w, "  relay send --to URL SESSION_FILE")
 	fmt.Fprintln(w, "  relay version")
 }

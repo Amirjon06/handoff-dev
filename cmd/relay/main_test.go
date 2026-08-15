@@ -82,6 +82,75 @@ func TestSendRequiresTarget(t *testing.T) {
 	}
 }
 
+func TestInboxListsReceivedSessions(t *testing.T) {
+	inbox := t.TempDir()
+	path := filepath.Join(inbox, "received.json")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	captured := session.New("test-machine", gitstate.State{
+		Root:   "/repo/staterelay",
+		Name:   "staterelay",
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: "0c8cc07845ffae5a9f5e479f4b094b30a9a7a691",
+		Dirty:  true,
+		ChangedFiles: []gitstate.ChangedFile{
+			{Path: "README.md", Status: "modified"},
+		},
+	}, time.Date(2026, 8, 15, 20, 15, 41, 0, time.UTC))
+	captured.Editor = testEditorState("/repo/staterelay")
+	if err := session.WriteJSON(file, captured); err != nil {
+		t.Fatalf("WriteJSON returned error: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err = run(context.Background(), []string{"inbox", "--inbox", inbox}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"Inbox: " + inbox,
+		path,
+		"  repo: staterelay",
+		"  branch: main",
+		"  commit: 0c8cc07845ff",
+		"  dirty: true",
+		"  changed files: 1",
+		"  editor files: 1",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("inbox output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestInboxPrintsEmptyState(t *testing.T) {
+	inbox := filepath.Join(t.TempDir(), "missing")
+	var stdout bytes.Buffer
+
+	err := run(context.Background(), []string{"inbox", "--inbox", inbox}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"Inbox: " + inbox,
+		"No received sessions",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("inbox output missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestCaptureJSONIncludesChangedFiles(t *testing.T) {
 	repoRoot, _ := initGitRepo(t)
 	if err := os.WriteFile(repoRoot+"/README.md", []byte("# Changed\n"), 0o644); err != nil {

@@ -49,6 +49,7 @@ Goal: move one session between two machines.
 - `relay listen`
 - `relay send --to URL`
 - HTTP transport with validated session storage
+- inbox listing for received sessions
 - destination restore
 
 ## Phase 6: Uncommitted Work

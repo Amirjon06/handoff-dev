@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -102,6 +103,43 @@ func TestHandlerStoresValidSession(t *testing.T) {
 	}
 }
 
+func TestFileInboxListsSessionsNewestFirst(t *testing.T) {
+	inbox := t.TempDir()
+	older := testSession()
+	newer := testSession()
+	newer.CapturedAt = newer.CapturedAt.Add(2 * time.Hour)
+	writeSessionFile(t, inbox, "older.json", older)
+	writeSessionFile(t, inbox, "newer.json", newer)
+	if err := os.WriteFile(filepath.Join(inbox, "notes.txt"), []byte("ignore\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	entries, err := FileInbox{Dir: inbox}.List(context.Background())
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+
+	if len(entries) != 2 {
+		t.Fatalf("entry count = %d, want 2", len(entries))
+	}
+	if entries[0].Name != "newer.json" {
+		t.Fatalf("first entry = %q, want newer.json", entries[0].Name)
+	}
+	if entries[1].Name != "older.json" {
+		t.Fatalf("second entry = %q, want older.json", entries[1].Name)
+	}
+}
+
+func TestFileInboxListReturnsEmptyWhenMissing(t *testing.T) {
+	entries, err := FileInbox{Dir: filepath.Join(t.TempDir(), "missing")}.List(context.Background())
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("entry count = %d, want 0", len(entries))
+	}
+}
+
 func TestHandlerRejectsInvalidSession(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, SessionsPath, strings.NewReader(`{"schema_version":1}`))
 	rec := httptest.NewRecorder()
@@ -112,6 +150,19 @@ func TestHandlerRejectsInvalidSession(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "invalid session") {
 		t.Fatalf("body = %q", rec.Body.String())
+	}
+}
+
+func writeSessionFile(t *testing.T, dir string, name string, captured session.Session) {
+	t.Helper()
+
+	file, err := os.Create(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	defer file.Close()
+	if err := session.WriteJSON(file, captured); err != nil {
+		t.Fatalf("WriteJSON returned error: %v", err)
 	}
 }
 

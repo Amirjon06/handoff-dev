@@ -98,12 +98,13 @@ go run ./cmd/relay restore --path /path/to/checkout session.json
 go run ./cmd/relay restore --apply --dry-run session.json
 go run ./cmd/relay restore --apply session.json
 go run ./cmd/relay listen --addr 127.0.0.1:8765 --inbox .staterelay/inbox
+go run ./cmd/relay inbox --inbox .staterelay/inbox
 go run ./cmd/relay send --to http://127.0.0.1:8765 session.json
 ```
 
 Current capture output includes the Git repository root, repository name, origin remote, active branch, current commit, dirty working tree status, and captured file snapshot details. Captured text snapshots include SHA-256 hashes for integrity checks, and restore plans show a short hash prefix for captured files. Use `--json` to produce the first StateRelay session artifact. Restore rejects malformed or unsafe session files before verifying that the target checkout branch and commit match. Use `restore --path` to validate a different checkout. Use `restore --apply --dry-run` to validate an apply without writing files. Use `restore --apply` to write captured text snapshots into a clean working tree; dirty destinations are rejected with the blocking file list, content hashes are checked before files are written, and uncaptured files are reported as skipped.
 
-The first network handoff path is HTTP-based. `relay listen` accepts validated session JSON at `/sessions` and stores it in an inbox directory. `relay send` posts an existing session file to another StateRelay listener. This is still a development transport and does not include pairing, TLS, or device discovery yet.
+The first network handoff path is HTTP-based. `relay listen` accepts validated session JSON at `/sessions` and stores it in an inbox directory. `relay send` posts an existing session file to another StateRelay listener. `relay inbox` lists received sessions with the repo, branch, commit, dirty state, and changed-file count. This is still a development transport and does not include pairing, TLS, or device discovery yet.
 
 Current VS Code extension command:
 
@@ -121,6 +122,7 @@ relay capture [--path PATH] [--json]
 relay capture [--path PATH] [--out FILE]
 relay restore [--path PATH] [--apply] [--dry-run] SESSION_FILE
 relay listen [--addr ADDR] [--inbox DIR]
+relay inbox [--inbox DIR]
 relay send --to URL SESSION_FILE
 relay version
 ```
@@ -169,7 +171,7 @@ Planned capture example:
 
 ## Development Status
 
-This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, a VS Code extension that captures editor state, and an early HTTP path for sending session files to another listener.
+This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, a VS Code extension that captures editor state, and an early HTTP path for sending and listing received session files.
 
 ## Roadmap
 
