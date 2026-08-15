@@ -14,6 +14,7 @@ import (
 	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/session"
+	"github.com/Amirjon06/handoff-dev/internal/terminalstate"
 	"github.com/Amirjon06/handoff-dev/internal/transport"
 )
 
@@ -36,6 +37,45 @@ func TestUnknownCommand(t *testing.T) {
 	err := run(context.Background(), []string{"nope"}, &stdout)
 	if err == nil {
 		t.Fatal("run returned nil error for unknown command")
+	}
+}
+
+func TestTerminalCommandWritesWorkspaceState(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	cwd := filepath.Join(repoRoot, "cmd", "relay")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"terminal", "--path", repoRoot, "--cwd", cwd}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	state, err := terminalstate.ReadWorkspace(repoRoot)
+	if err != nil {
+		t.Fatalf("ReadWorkspace returned error: %v", err)
+	}
+	if state == nil {
+		t.Fatal("terminal state = nil")
+	}
+	if len(state.WorkingDirectories) != 1 || state.WorkingDirectories[0].Path != "cmd/relay" {
+		t.Fatalf("working directories = %#v", state.WorkingDirectories)
+	}
+	if !strings.Contains(stdout.String(), "Working directories: 1") {
+		t.Fatalf("stdout missing working directory count:\n%s", stdout.String())
+	}
+}
+
+func TestTerminalCommandRejectsPositionals(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"terminal", "extra"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error with positional argument")
+	}
+	if err.Error() != "terminal does not accept positional arguments" {
+		t.Fatalf("error = %q", err.Error())
 	}
 }
 
@@ -320,6 +360,32 @@ func TestCaptureJSONIncludesEditorState(t *testing.T) {
 	}
 	if captured.Editor.OpenFiles[0].Selections[0].Active.Line != 3 {
 		t.Fatalf("active line = %d, want 3", captured.Editor.OpenFiles[0].Selections[0].Active.Line)
+	}
+}
+
+func TestCaptureJSONIncludesTerminalState(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	writeTestTerminalState(t, repoRoot)
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"capture", "--path", repoRoot, "--json"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	captured, err := session.ReadJSON(strings.NewReader(stdout.String()))
+	if err != nil {
+		t.Fatalf("ReadJSON returned error: %v", err)
+	}
+
+	if captured.Terminal == nil {
+		t.Fatal("terminal state = nil")
+	}
+	if len(captured.Terminal.WorkingDirectories) != 1 {
+		t.Fatalf("working directory count = %d, want 1", len(captured.Terminal.WorkingDirectories))
+	}
+	if captured.Terminal.WorkingDirectories[0].Path != "." {
+		t.Fatalf("working directory = %q", captured.Terminal.WorkingDirectories[0].Path)
 	}
 }
 
@@ -746,6 +812,37 @@ func TestRestoreApplyDryRunDoesNotWriteFiles(t *testing.T) {
 	}
 }
 
+func TestRestoreApplyWritesTerminalState(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	path := writeTestSessionWithWorkspace(t, repoRoot, gitstate.State{
+		Root:   repoRoot,
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+		Dirty:  true,
+	}, nil, testTerminalState())
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"restore", "--apply", path}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	state, err := terminalstate.ReadWorkspace(repoRoot)
+	if err != nil {
+		t.Fatalf("ReadWorkspace returned error: %v", err)
+	}
+	if state == nil {
+		t.Fatal("terminal state = nil")
+	}
+	if state.WorkingDirectories[0].Path != "." {
+		t.Fatalf("working directory = %q", state.WorkingDirectories[0].Path)
+	}
+	if !strings.Contains(stdout.String(), "Restored terminal directories: 1") {
+		t.Fatalf("stdout missing terminal restore:\n%s", stdout.String())
+	}
+}
+
 func TestRestoreApplyKeepsBothOnConflict(t *testing.T) {
 	repoRoot, commit := initGitRepo(t)
 	verifiedRoot := strings.TrimSpace(runGit(t, repoRoot, "rev-parse", "--show-toplevel"))
@@ -1060,6 +1157,12 @@ func writeTestSessionWithGit(t *testing.T, root string, git gitstate.State) stri
 func writeTestSessionWithEditor(t *testing.T, root string, git gitstate.State, editor *editorstate.State) string {
 	t.Helper()
 
+	return writeTestSessionWithWorkspace(t, root, git, editor, nil)
+}
+
+func writeTestSessionWithWorkspace(t *testing.T, root string, git gitstate.State, editor *editorstate.State, terminal *terminalstate.State) string {
+	t.Helper()
+
 	if git.Name == "" {
 		git.Name = filepath.Base(root)
 	}
@@ -1070,7 +1173,7 @@ func writeTestSessionWithEditor(t *testing.T, root string, git gitstate.State, e
 	}
 	defer file.Close()
 
-	captured := session.NewWithEditor("test-machine", git, editor, time.Date(2026, 8, 10, 18, 30, 0, 0, time.UTC))
+	captured := session.NewWithWorkspace("test-machine", git, editor, terminal, time.Date(2026, 8, 10, 18, 30, 0, 0, time.UTC))
 
 	if err := session.WriteJSON(file, captured); err != nil {
 		t.Fatalf("WriteJSON returned error: %v", err)
@@ -1097,6 +1200,24 @@ func writeTestEditorState(t *testing.T, root string) {
 
 	if err := editorstate.WriteWorkspace(root, testEditorState(root)); err != nil {
 		t.Fatalf("WriteWorkspace returned error: %v", err)
+	}
+}
+
+func writeTestTerminalState(t *testing.T, root string) {
+	t.Helper()
+
+	if err := terminalstate.WriteWorkspace(root, testTerminalState()); err != nil {
+		t.Fatalf("WriteWorkspace returned error: %v", err)
+	}
+}
+
+func testTerminalState() *terminalstate.State {
+	return &terminalstate.State{
+		SchemaVersion: terminalstate.SchemaVersion,
+		CapturedAt:    "2026-08-15T21:00:00Z",
+		WorkingDirectories: []terminalstate.Directory{
+			{Path: "."},
+		},
 	}
 }
 

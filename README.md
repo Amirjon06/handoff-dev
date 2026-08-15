@@ -11,6 +11,7 @@ StateRelay currently captures and restores the core parts of a developer handoff
 - Git repository name, remote, branch, and commit
 - Open editor files and cursor positions
 - Uncommitted work
+- Terminal working directories
 - Received session history through a local inbox
 - Local-network transfer between two machines over HTTP
 
@@ -57,10 +58,11 @@ Think of it as Apple Handoff for developers, but across macOS, Windows, and Linu
 | Editor integration | TypeScript + VS Code API | Capture and restore editor state |
 | Session format | JSON | Portable, inspectable workspace metadata |
 | Repository state | Git | Branch, commit, remote, and dirty file detection |
+| Terminal state | Go CLI | Record terminal working directories inside the workspace |
 | First transport | HTTP | Simple local-network transfer |
 | CI | GitHub Actions | Verify Go code, CLI builds, and extension checks |
 
-Planned areas include mDNS discovery, device pairing, TLS, SQLite-backed history, browser-tab handoff, terminal-directory handoff, and a background agent.
+Planned areas include mDNS discovery, device pairing, TLS, SQLite-backed history, browser-tab handoff, and a background agent.
 
 ## Installation
 
@@ -108,6 +110,7 @@ go run ./cmd/relay version
 go run ./cmd/relay capture --path .
 go run ./cmd/relay capture --path . --json
 go run ./cmd/relay capture --path . --out session.json
+go run ./cmd/relay terminal --path . --cwd .
 go run ./cmd/relay restore session.json
 go run ./cmd/relay restore --path /path/to/checkout session.json
 go run ./cmd/relay restore --path /path/to/checkout --inbox .staterelay/inbox latest
@@ -123,7 +126,7 @@ go run ./cmd/relay ping --to http://127.0.0.1:8765
 go run ./cmd/relay send --to http://127.0.0.1:8765 session.json
 ```
 
-Current capture output includes the Git repository root, repository name, origin remote, active branch, current commit, dirty working tree status, and captured file snapshot details. Captured text snapshots include SHA-256 hashes for integrity checks, and restore plans show a short hash prefix for captured files. Use `--json` to produce the first StateRelay session artifact. Restore rejects malformed or unsafe session files before verifying that the target checkout branch and commit match. Use `restore --path` to validate a different checkout. Use `restore --clone-dir DIR` to clone a missing repository into that parent directory before validation. Use `restore --inbox DIR latest` to restore from the newest received handoff without copying the full JSON filename. Use `restore --apply --dry-run` to validate an apply without writing files. Use `restore --apply` to write captured text snapshots into a clean working tree; dirty destinations are rejected with the blocking file list by default, content hashes are checked before files are written, and uncaptured files are reported as skipped. Use `--conflict keep-both` to preserve a locally changed file and write the incoming version beside it with a `.staterelay-source` suffix.
+Current capture output includes the Git repository root, repository name, origin remote, active branch, current commit, dirty working tree status, captured file snapshot details, editor state, and terminal state. Captured text snapshots include SHA-256 hashes for integrity checks, and restore plans show a short hash prefix for captured files. Use `--json` to produce the first StateRelay session artifact. Use `relay terminal --path . --cwd DIR` to write `.staterelay/terminal-state.json` before capture. Restore rejects malformed or unsafe session files before verifying that the target checkout branch and commit match. Use `restore --path` to validate a different checkout. Use `restore --clone-dir DIR` to clone a missing repository into that parent directory before validation. Use `restore --inbox DIR latest` to restore from the newest received handoff without copying the full JSON filename. Use `restore --apply --dry-run` to validate an apply without writing files. Use `restore --apply` to write captured text snapshots, editor state, and terminal state into a clean working tree; dirty destinations are rejected with the blocking file list by default, content hashes are checked before files are written, and uncaptured files are reported as skipped. Use `--conflict keep-both` to preserve a locally changed file and write the incoming version beside it with a `.staterelay-source` suffix.
 
 The first network handoff path is HTTP-based. `relay listen` accepts validated session JSON at `/sessions` and stores it in an inbox directory. `relay ping` checks that a listener is reachable before sending. `relay send` posts an existing session file to another StateRelay listener. `relay inbox` lists received sessions with the repo, branch, commit, dirty state, and changed-file count. This is still a development transport and does not include pairing, TLS, or device discovery yet.
 
@@ -144,6 +147,7 @@ Planned commands:
 ```bash
 relay capture [--path PATH] [--json]
 relay capture [--path PATH] [--out FILE]
+relay terminal [--path PATH] [--cwd DIR]
 relay restore [--path PATH] [--clone-dir DIR] [--inbox DIR] [--apply] [--dry-run] [--conflict reject|keep-both] SESSION_FILE|latest
 relay listen [--addr ADDR] [--inbox DIR]
 relay inbox [--inbox DIR]
@@ -197,7 +201,7 @@ Planned capture example:
 
 ## Development Status
 
-This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, a VS Code extension that captures and restores editor state, an early HTTP path for sending, listing, and restoring received session files, CI checks for both the Go code and extension, and release build scripts for common desktop platforms.
+This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, terminal working-directory capture, a VS Code extension that captures and restores editor state, an early HTTP path for sending, listing, and restoring received session files, CI checks for both the Go code and extension, and release build scripts for common desktop platforms.
 
 ## Roadmap
 
@@ -216,7 +220,7 @@ This repository is being built step by step. The current version has a Go CLI fo
 13. Encrypt transfers with TLS.
 14. Persist sessions, devices, and transfer history in SQLite.
 15. Add browser-tab handoff.
-16. Add terminal-directory handoff.
+16. Expand terminal-directory handoff.
 17. Support Linux alongside macOS and Windows.
 18. Run the Go agent as a background service.
 19. Add a simple desktop UI that talks to the same Go backend.

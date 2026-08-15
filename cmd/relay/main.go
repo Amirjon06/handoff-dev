@@ -17,6 +17,7 @@ import (
 	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/session"
+	"github.com/Amirjon06/handoff-dev/internal/terminalstate"
 	"github.com/Amirjon06/handoff-dev/internal/transport"
 )
 
@@ -53,6 +54,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runInbox(ctx, args[1:], stdout)
 	case "doctor":
 		return runDoctor(ctx, args[1:], stdout)
+	case "terminal":
+		return runTerminal(ctx, args[1:], stdout)
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return nil
@@ -62,6 +65,36 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runTerminal(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("terminal", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	path := fs.String("path", ".", "workspace path")
+	cwd := fs.String("cwd", "", "terminal working directory to record")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("terminal does not accept positional arguments")
+	}
+
+	root, err := gitstate.Root(ctx, *path)
+	if err != nil {
+		return fmt.Errorf("find workspace root: %w", err)
+	}
+	state, err := terminalstate.Capture(root, *cwd, time.Now())
+	if err != nil {
+		return err
+	}
+	if err := terminalstate.WriteWorkspace(root, &state); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(stdout, "Captured terminal state to %s\n", filepath.Join(root, ".staterelay", "terminal-state.json"))
+	fmt.Fprintf(stdout, "Working directories: %d\n", len(state.WorkingDirectories))
+	return nil
 }
 
 func runDoctor(ctx context.Context, args []string, stdout io.Writer) error {
@@ -235,6 +268,9 @@ func runInbox(ctx context.Context, args []string, stdout io.Writer) error {
 		if captured.Editor != nil {
 			fmt.Fprintf(stdout, "  editor files: %d\n", len(captured.Editor.OpenFiles))
 		}
+		if captured.Terminal != nil {
+			fmt.Fprintf(stdout, "  terminal directories: %d\n", len(captured.Terminal.WorkingDirectories))
+		}
 	}
 	return nil
 }
@@ -259,13 +295,17 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("read editor state: %w", err)
 	}
+	terminal, err := terminalstate.ReadWorkspace(state.Root)
+	if err != nil {
+		return fmt.Errorf("read terminal state: %w", err)
+	}
 
 	if *jsonOutput || *out != "" {
 		hostname, err := os.Hostname()
 		if err != nil {
 			hostname = "unknown"
 		}
-		captured := session.NewWithEditor(hostname, state, editor, time.Now())
+		captured := session.NewWithWorkspace(hostname, state, editor, terminal, time.Now())
 
 		if *out == "" {
 			return session.WriteJSON(stdout, captured)
@@ -299,6 +339,7 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "Changed file: %s %s (content not captured)\n", file.Status, file.Path)
 	}
 	printEditorState(stdout, editor)
+	printTerminalState(stdout, terminal)
 	return nil
 }
 
@@ -380,6 +421,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 			}
 			printApplyResult(stdout, "Would apply", result)
 			printEditorApplyResult(stdout, "Would restore", captured.Editor)
+			printTerminalApplyResult(stdout, "Would restore", captured.Terminal)
 			return nil
 		}
 		result, err := applyChangedFiles(verifiedRoot, captured.Git.ChangedFiles, currentState.ChangedFiles, *conflict)
@@ -389,8 +431,12 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 		if err := editorstate.WriteWorkspace(verifiedRoot, captured.Editor); err != nil {
 			return err
 		}
+		if err := terminalstate.WriteWorkspace(verifiedRoot, captured.Terminal); err != nil {
+			return err
+		}
 		printApplyResult(stdout, "Applied", result)
 		printEditorApplyResult(stdout, "Restored", captured.Editor)
+		printTerminalApplyResult(stdout, "Restored", captured.Terminal)
 		return nil
 	}
 
@@ -422,6 +468,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 	}
 	printEditorState(stdout, captured.Editor)
+	printTerminalState(stdout, captured.Terminal)
 	return nil
 }
 
@@ -647,6 +694,20 @@ func printEditorApplyResult(stdout io.Writer, action string, editor *editorstate
 	fmt.Fprintf(stdout, "%s editor state: %d open file(s)\n", action, len(editor.OpenFiles))
 }
 
+func printTerminalState(stdout io.Writer, terminal *terminalstate.State) {
+	if terminal == nil {
+		return
+	}
+	fmt.Fprintf(stdout, "Terminal directories: %d\n", len(terminal.WorkingDirectories))
+}
+
+func printTerminalApplyResult(stdout io.Writer, action string, terminal *terminalstate.State) {
+	if terminal == nil {
+		return
+	}
+	fmt.Fprintf(stdout, "%s terminal directories: %d\n", action, len(terminal.WorkingDirectories))
+}
+
 func sha256Hex(content []byte) string {
 	sum := sha256.Sum256(content)
 	return hex.EncodeToString(sum[:])
@@ -686,6 +747,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR]")
 	fmt.Fprintln(w, "  relay inbox [--inbox DIR]")
 	fmt.Fprintln(w, "  relay doctor [--path PATH] [--inbox DIR] [--to URL]")
+	fmt.Fprintln(w, "  relay terminal [--path PATH] [--cwd DIR]")
 	fmt.Fprintln(w, "  relay ping --to URL")
 	fmt.Fprintln(w, "  relay send --to URL SESSION_FILE")
 	fmt.Fprintln(w, "  relay version")

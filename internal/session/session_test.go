@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
+	"github.com/Amirjon06/handoff-dev/internal/terminalstate"
 )
 
 func TestSessionJSONRoundTrip(t *testing.T) {
@@ -37,6 +38,73 @@ func TestSessionJSONRoundTrip(t *testing.T) {
 	}
 	if got.Git.Remote != "https://github.com/Amirjon06/handoff-dev.git" {
 		t.Fatalf("remote = %q", got.Git.Remote)
+	}
+}
+
+func TestSessionJSONRoundTripWithTerminalState(t *testing.T) {
+	capturedAt := time.Date(2026, 8, 15, 21, 0, 0, 0, time.UTC)
+	original := NewWithWorkspace("amir-macbook", gitstate.State{
+		Name:   "handoff-dev",
+		Root:   "/Users/amir/projects/handoff-dev",
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: "faaf307bf4fa86c316586804bf88f3096511aabd",
+	}, nil, &terminalstate.State{
+		SchemaVersion: terminalstate.SchemaVersion,
+		CapturedAt:    "2026-08-15T21:00:00Z",
+		WorkingDirectories: []terminalstate.Directory{
+			{Path: "."},
+		},
+	}, capturedAt)
+
+	var buf bytes.Buffer
+	if err := WriteJSON(&buf, original); err != nil {
+		t.Fatalf("WriteJSON returned error: %v", err)
+	}
+
+	got, err := ReadJSON(strings.NewReader(buf.String()))
+	if err != nil {
+		t.Fatalf("ReadJSON returned error: %v", err)
+	}
+	if got.Terminal == nil {
+		t.Fatal("terminal state = nil")
+	}
+	if got.Terminal.WorkingDirectories[0].Path != "." {
+		t.Fatalf("terminal path = %q", got.Terminal.WorkingDirectories[0].Path)
+	}
+}
+
+func TestReadJSONRejectsUnsafeTerminalPath(t *testing.T) {
+	input := `{
+		"schema_version": 1,
+		"captured_at": "2026-08-10T18:30:00Z",
+		"source": {
+			"hostname": "amir-macbook",
+			"os": "darwin",
+			"arch": "arm64"
+		},
+		"git": {
+			"root": "/Users/amir/projects/handoff-dev",
+			"name": "handoff-dev",
+			"remote": "https://github.com/Amirjon06/handoff-dev.git",
+			"branch": "main",
+			"commit": "faaf307bf4fa86c316586804bf88f3096511aabd"
+		},
+		"terminal": {
+			"schema_version": 1,
+			"captured_at": "2026-08-15T21:00:00Z",
+			"working_directories": [
+				{"path": "../outside"}
+			]
+		}
+	}`
+
+	_, err := ReadJSON(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("ReadJSON returned nil error for unsafe terminal path")
+	}
+	if got := err.Error(); got != `session terminal: terminal state working_directories[0].path "../outside" is unsafe` {
+		t.Fatalf("error = %q", got)
 	}
 }
 
