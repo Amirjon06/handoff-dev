@@ -79,6 +79,7 @@ Goal: make the network flow usable and trustworthy.
 
 - `relay devices`
 - mDNS discovery
+- local Ed25519 device identity
 - verification codes
 - trusted device storage
 - TLS encryption

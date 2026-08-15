@@ -28,6 +28,7 @@ The Go agent owns:
 - Git inspection
 - session serialization
 - local state file reads and writes
+- local device identity
 - HTTP networking
 - restore orchestration
 

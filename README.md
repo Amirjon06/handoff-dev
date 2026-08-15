@@ -13,6 +13,7 @@ StateRelay currently captures and restores the core parts of a developer handoff
 - Uncommitted work
 - Terminal working directories
 - Browser tab URLs
+- Local device identity
 - Received session history through a local inbox
 - Local-network transfer between two machines over HTTP
 
@@ -32,7 +33,7 @@ same cursor positions
 same unfinished work
 ```
 
-Future versions are planned to add automatic browser opening, encrypted device pairing, and a background agent.
+Future versions are planned to add automatic browser opening, device pairing, encrypted transfer, and a background agent.
 
 ## Why It Exists
 
@@ -61,10 +62,11 @@ Think of it as Apple Handoff for developers, but across macOS, Windows, and Linu
 | Repository state | Git | Branch, commit, remote, and dirty file detection |
 | Terminal state | Go CLI | Record terminal working directories inside the workspace |
 | Browser state | Go CLI | Record browser tab URLs for handoff |
+| Device identity | Ed25519 | Stable local identity for future pairing |
 | First transport | HTTP | Simple local-network transfer |
 | CI | GitHub Actions | Verify Go code, CLI builds, and extension checks |
 
-Planned areas include mDNS discovery, device pairing, TLS, SQLite-backed history, automatic browser restore, and a background agent.
+Planned areas include mDNS discovery, trusted-device pairing, TLS, SQLite-backed history, automatic browser restore, and a background agent.
 
 ## Installation
 
@@ -114,6 +116,7 @@ go run ./cmd/relay capture --path . --json
 go run ./cmd/relay capture --path . --out session.json
 go run ./cmd/relay terminal --path . --cwd .
 go run ./cmd/relay browser --path . --url https://go.dev/doc/
+go run ./cmd/relay identity --path . --name my-laptop
 go run ./cmd/relay restore session.json
 go run ./cmd/relay restore --path /path/to/checkout session.json
 go run ./cmd/relay restore --path /path/to/checkout --inbox .staterelay/inbox latest
@@ -129,7 +132,7 @@ go run ./cmd/relay ping --to http://127.0.0.1:8765
 go run ./cmd/relay send --to http://127.0.0.1:8765 session.json
 ```
 
-Current capture output includes the Git repository root, repository name, origin remote, active branch, current commit, dirty working tree status, captured file snapshot details, editor state, terminal state, and browser state. Captured text snapshots include SHA-256 hashes for integrity checks, and restore plans show a short hash prefix for captured files. Use `--json` to produce the first StateRelay session artifact. Use `relay terminal --path . --cwd DIR` to write `.staterelay/terminal-state.json` before capture. Use `relay browser --path . --url URL` to write `.staterelay/browser-state.json`; repeat `--url` to record multiple tabs. Restore rejects malformed or unsafe session files before verifying that the target checkout branch and commit match. Use `restore --path` to validate a different checkout. Use `restore --clone-dir DIR` to clone a missing repository into that parent directory before validation. Use `restore --inbox DIR latest` to restore from the newest received handoff without copying the full JSON filename. Use `restore --apply --dry-run` to validate an apply without writing files. Use `restore --apply` to write captured text snapshots, editor state, terminal state, and browser state into a clean working tree; dirty destinations are rejected with the blocking file list by default, content hashes are checked before files are written, and uncaptured files are reported as skipped. Use `--conflict keep-both` to preserve a locally changed file and write the incoming version beside it with a `.staterelay-source` suffix.
+Current capture output includes the Git repository root, repository name, origin remote, active branch, current commit, dirty working tree status, captured file snapshot details, editor state, terminal state, and browser state. Captured text snapshots include SHA-256 hashes for integrity checks, and restore plans show a short hash prefix for captured files. Use `--json` to produce the first StateRelay session artifact. Use `relay terminal --path . --cwd DIR` to write `.staterelay/terminal-state.json` before capture. Use `relay browser --path . --url URL` to write `.staterelay/browser-state.json`; repeat `--url` to record multiple tabs. Use `relay identity --path .` to create or load a local Ed25519 device identity for future pairing. Restore rejects malformed or unsafe session files before verifying that the target checkout branch and commit match. Use `restore --path` to validate a different checkout. Use `restore --clone-dir DIR` to clone a missing repository into that parent directory before validation. Use `restore --inbox DIR latest` to restore from the newest received handoff without copying the full JSON filename. Use `restore --apply --dry-run` to validate an apply without writing files. Use `restore --apply` to write captured text snapshots, editor state, terminal state, and browser state into a clean working tree; dirty destinations are rejected with the blocking file list by default, content hashes are checked before files are written, and uncaptured files are reported as skipped. Use `--conflict keep-both` to preserve a locally changed file and write the incoming version beside it with a `.staterelay-source` suffix.
 
 The first network handoff path is HTTP-based. `relay listen` accepts validated session JSON at `/sessions` and stores it in an inbox directory. `relay ping` checks that a listener is reachable before sending. `relay send` posts an existing session file to another StateRelay listener. `relay inbox` lists received sessions with the repo, branch, commit, dirty state, and changed-file count. This is still a development transport and does not include pairing, TLS, or device discovery yet.
 
@@ -152,6 +155,7 @@ relay capture [--path PATH] [--json]
 relay capture [--path PATH] [--out FILE]
 relay terminal [--path PATH] [--cwd DIR]
 relay browser [--path PATH] --url URL [--url URL...]
+relay identity [--path PATH] [--name NAME]
 relay restore [--path PATH] [--clone-dir DIR] [--inbox DIR] [--apply] [--dry-run] [--conflict reject|keep-both] SESSION_FILE|latest
 relay listen [--addr ADDR] [--inbox DIR]
 relay inbox [--inbox DIR]
@@ -205,7 +209,7 @@ Planned capture example:
 
 ## Development Status
 
-This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, terminal working-directory capture, browser tab URL capture, a VS Code extension that captures and restores editor state, an early HTTP path for sending, listing, and restoring received session files, CI checks for both the Go code and extension, and release build scripts for common desktop platforms.
+This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, terminal working-directory capture, browser tab URL capture, local device identity generation, a VS Code extension that captures and restores editor state, an early HTTP path for sending, listing, and restoring received session files, CI checks for both the Go code and extension, and release build scripts for common desktop platforms.
 
 ## Roadmap
 

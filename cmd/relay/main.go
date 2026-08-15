@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Amirjon06/handoff-dev/internal/browserstate"
+	"github.com/Amirjon06/handoff-dev/internal/deviceidentity"
 	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/session"
@@ -59,6 +60,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runTerminal(ctx, args[1:], stdout)
 	case "browser":
 		return runBrowser(ctx, args[1:], stdout)
+	case "identity":
+		return runIdentity(ctx, args[1:], stdout)
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return nil
@@ -68,6 +71,46 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runIdentity(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("identity", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	path := fs.String("path", ".", "workspace path")
+	name := fs.String("name", "", "device name for a new identity")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("identity does not accept positional arguments")
+	}
+
+	root, err := gitstate.Root(ctx, *path)
+	if err != nil {
+		return fmt.Errorf("find workspace root: %w", err)
+	}
+	deviceName := strings.TrimSpace(*name)
+	if deviceName == "" {
+		deviceName, err = os.Hostname()
+		if err != nil {
+			return fmt.Errorf("read hostname: %w", err)
+		}
+	}
+
+	identity, created, err := deviceidentity.LoadOrCreate(deviceidentity.Path(root), deviceName, time.Now())
+	if err != nil {
+		return err
+	}
+	if created {
+		fmt.Fprintln(stdout, "Created device identity")
+	} else {
+		fmt.Fprintln(stdout, "Loaded device identity")
+	}
+	fmt.Fprintf(stdout, "Name: %s\n", identity.Name)
+	fmt.Fprintf(stdout, "Fingerprint: %s\n", identity.Fingerprint)
+	fmt.Fprintf(stdout, "Path: %s\n", deviceidentity.Path(root))
+	return nil
 }
 
 type stringListFlag []string
@@ -177,6 +220,16 @@ func runDoctor(ctx context.Context, args []string, stdout io.Writer) error {
 	fmt.Fprintln(stdout, "Inbox: ok")
 	fmt.Fprintf(stdout, "  path: %s\n", *inbox)
 	fmt.Fprintf(stdout, "  sessions: %d\n", len(entries))
+	identity, err := deviceidentity.Load(deviceidentity.Path(state.Root))
+	if err == nil {
+		fmt.Fprintln(stdout, "Identity: ok")
+		fmt.Fprintf(stdout, "  name: %s\n", identity.Name)
+		fmt.Fprintf(stdout, "  fingerprint: %s\n", identity.Fingerprint)
+	} else if os.IsNotExist(err) {
+		fmt.Fprintln(stdout, "Identity: missing")
+	} else {
+		return fmt.Errorf("check identity: %w", err)
+	}
 
 	if *target == "" {
 		fmt.Fprintln(stdout, "Listener: skipped")
@@ -825,6 +878,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  relay doctor [--path PATH] [--inbox DIR] [--to URL]")
 	fmt.Fprintln(w, "  relay terminal [--path PATH] [--cwd DIR]")
 	fmt.Fprintln(w, "  relay browser [--path PATH] --url URL [--url URL...]")
+	fmt.Fprintln(w, "  relay identity [--path PATH] [--name NAME]")
 	fmt.Fprintln(w, "  relay ping --to URL")
 	fmt.Fprintln(w, "  relay send --to URL SESSION_FILE")
 	fmt.Fprintln(w, "  relay version")

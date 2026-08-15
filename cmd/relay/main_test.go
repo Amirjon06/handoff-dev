@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Amirjon06/handoff-dev/internal/browserstate"
+	"github.com/Amirjon06/handoff-dev/internal/deviceidentity"
 	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/session"
@@ -118,6 +119,52 @@ func TestBrowserCommandRejectsPositionals(t *testing.T) {
 	}
 }
 
+func TestIdentityCommandCreatesAndLoadsDeviceIdentity(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+
+	var created bytes.Buffer
+	err := run(context.Background(), []string{"identity", "--path", repoRoot, "--name", "test-mac"}, &created)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	if !strings.Contains(created.String(), "Created device identity") {
+		t.Fatalf("stdout missing created message:\n%s", created.String())
+	}
+	identity, err := deviceidentity.Load(deviceidentity.Path(repoRoot))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if identity.Name != "test-mac" {
+		t.Fatalf("identity name = %q", identity.Name)
+	}
+	if !strings.Contains(created.String(), "Fingerprint: "+identity.Fingerprint) {
+		t.Fatalf("stdout missing fingerprint:\n%s", created.String())
+	}
+
+	var loaded bytes.Buffer
+	err = run(context.Background(), []string{"identity", "--path", repoRoot, "--name", "ignored"}, &loaded)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	if !strings.Contains(loaded.String(), "Loaded device identity") {
+		t.Fatalf("stdout missing loaded message:\n%s", loaded.String())
+	}
+	if !strings.Contains(loaded.String(), "Name: test-mac") {
+		t.Fatalf("stdout changed identity name:\n%s", loaded.String())
+	}
+}
+
+func TestIdentityCommandRejectsPositionals(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"identity", "extra"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error with positional argument")
+	}
+	if err.Error() != "identity does not accept positional arguments" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestDoctorPrintsRepositoryAndInboxStatus(t *testing.T) {
 	repoRoot, commit := initGitRepo(t)
 	verifiedRoot := strings.TrimSpace(runGit(t, repoRoot, "rev-parse", "--show-toplevel"))
@@ -140,7 +187,38 @@ func TestDoctorPrintsRepositoryAndInboxStatus(t *testing.T) {
 		"Inbox: ok",
 		"  path: " + inbox,
 		"  sessions: 0",
+		"Identity: missing",
 		"Listener: skipped",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestDoctorPrintsIdentityStatus(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	var identityOut bytes.Buffer
+	err := run(context.Background(), []string{"identity", "--path", repoRoot, "--name", "test-mac"}, &identityOut)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	identity, err := deviceidentity.Load(deviceidentity.Path(repoRoot))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err = run(context.Background(), []string{"doctor", "--path", repoRoot}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"Identity: ok",
+		"  name: test-mac",
+		"  fingerprint: " + identity.Fingerprint,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, got)
