@@ -12,7 +12,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:staterelay.captureEditorState"
+    "onCommand:staterelay.captureEditorState",
+    "onCommand:staterelay.restoreEditorState"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -20,6 +21,10 @@
       {
         "command": "staterelay.captureEditorState",
         "title": "StateRelay: Capture Editor State"
+      },
+      {
+        "command": "staterelay.restoreEditorState",
+        "title": "StateRelay: Restore Editor State"
       }
     ]
   },
