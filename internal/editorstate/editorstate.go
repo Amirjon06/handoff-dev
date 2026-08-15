@@ -55,6 +55,36 @@ func ReadWorkspace(root string) (*State, error) {
 	return &state, nil
 }
 
+func WriteWorkspace(root string, state *State) error {
+	if state == nil {
+		return nil
+	}
+
+	output := *state
+	workspaceFolder := root
+	output.WorkspaceFolder = &workspaceFolder
+	if err := Validate(&output); err != nil {
+		return err
+	}
+
+	dir := filepath.Join(root, ".staterelay")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create editor state directory: %w", err)
+	}
+
+	path := filepath.Join(dir, "editor-state.json")
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", path, err)
+	}
+	defer file.Close()
+
+	if err := WriteJSON(file, output); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
 func ReadJSON(r io.Reader) (State, error) {
 	var state State
 	if err := json.NewDecoder(r).Decode(&state); err != nil {
@@ -64,6 +94,12 @@ func ReadJSON(r io.Reader) (State, error) {
 		return State{}, err
 	}
 	return state, nil
+}
+
+func WriteJSON(w io.Writer, state State) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(state)
 }
 
 func Validate(state *State) error {

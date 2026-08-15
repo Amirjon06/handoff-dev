@@ -108,6 +108,7 @@ StateRelay: Capture Editor State
 ```
 
 The command writes `.staterelay/editor-state.json` with the workspace folder, active file, open text documents, dirty flags, and visible editor selections. `relay capture --json` includes that editor state when the file is present.
+Restore plans show captured editor state, and `restore --apply` writes it back to `.staterelay/editor-state.json` for the target checkout.
 
 Planned commands:
 
@@ -162,7 +163,7 @@ Planned capture example:
 
 ## Development Status
 
-This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, plus a VS Code extension that captures editor state and feeds it into session JSON.
+This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, plus a VS Code extension that captures editor state and lets restore carry it into a target checkout.
 
 ## Roadmap
 

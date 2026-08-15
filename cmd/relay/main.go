@@ -107,12 +107,7 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 		fmt.Fprintf(stdout, "Changed file: %s %s (content not captured)\n", file.Status, file.Path)
 	}
-	if editor != nil {
-		fmt.Fprintf(stdout, "Editor state: %d open file(s)\n", len(editor.OpenFiles))
-		if editor.ActiveFile != nil {
-			fmt.Fprintf(stdout, "Active editor file: %s\n", *editor.ActiveFile)
-		}
-	}
+	printEditorState(stdout, editor)
 	return nil
 }
 
@@ -186,13 +181,18 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 				return err
 			}
 			printApplyResult(stdout, "Would apply", result)
+			printEditorApplyResult(stdout, "Would restore", captured.Editor)
 			return nil
 		}
 		result, err := applyChangedFiles(verifiedRoot, captured.Git.ChangedFiles)
 		if err != nil {
 			return err
 		}
+		if err := editorstate.WriteWorkspace(verifiedRoot, captured.Editor); err != nil {
+			return err
+		}
 		printApplyResult(stdout, "Applied", result)
+		printEditorApplyResult(stdout, "Restored", captured.Editor)
 		return nil
 	}
 
@@ -216,6 +216,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 			fmt.Fprintf(stdout, "- %s %s (content not captured)\n", file.Status, file.Path)
 		}
 	}
+	printEditorState(stdout, captured.Editor)
 	return nil
 }
 
@@ -284,6 +285,23 @@ func printApplyResult(stdout io.Writer, action string, result applyResult) {
 	if len(result.skipped) > 0 {
 		fmt.Fprintf(stdout, "Skipped %d changed file(s) without captured content: %s\n", len(result.skipped), formatChangedFiles(result.skipped))
 	}
+}
+
+func printEditorState(stdout io.Writer, editor *editorstate.State) {
+	if editor == nil {
+		return
+	}
+	fmt.Fprintf(stdout, "Editor state: %d open file(s)\n", len(editor.OpenFiles))
+	if editor.ActiveFile != nil {
+		fmt.Fprintf(stdout, "Active editor file: %s\n", *editor.ActiveFile)
+	}
+}
+
+func printEditorApplyResult(stdout io.Writer, action string, editor *editorstate.State) {
+	if editor == nil {
+		return
+	}
+	fmt.Fprintf(stdout, "%s editor state: %d open file(s)\n", action, len(editor.OpenFiles))
 }
 
 func sha256Hex(content []byte) string {

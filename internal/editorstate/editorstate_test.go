@@ -56,6 +56,46 @@ func TestReadWorkspaceReadsEditorState(t *testing.T) {
 	}
 }
 
+func TestWriteWorkspaceWritesEditorStateForTargetRoot(t *testing.T) {
+	root := t.TempDir()
+	sourceRoot := "/source/repo"
+	activeFile := "README.md"
+	state := &State{
+		SchemaVersion:   SchemaVersion,
+		CapturedAt:      "2026-08-15T18:30:00Z",
+		WorkspaceFolder: &sourceRoot,
+		ActiveFile:      &activeFile,
+		OpenFiles: []File{
+			{
+				Path:       "README.md",
+				LanguageID: "markdown",
+				IsDirty:    true,
+			},
+		},
+	}
+
+	if err := WriteWorkspace(root, state); err != nil {
+		t.Fatalf("WriteWorkspace returned error: %v", err)
+	}
+
+	got, err := ReadWorkspace(root)
+	if err != nil {
+		t.Fatalf("ReadWorkspace returned error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("state = nil, want editor state")
+	}
+	if got.WorkspaceFolder == nil || *got.WorkspaceFolder != root {
+		t.Fatalf("workspace folder = %#v, want %q", got.WorkspaceFolder, root)
+	}
+	if got.ActiveFile == nil || *got.ActiveFile != "README.md" {
+		t.Fatalf("active file = %#v", got.ActiveFile)
+	}
+	if len(got.OpenFiles) != 1 {
+		t.Fatalf("open file count = %d, want 1", len(got.OpenFiles))
+	}
+}
+
 func TestReadJSONRejectsMissingOpenFilePath(t *testing.T) {
 	root := t.TempDir()
 	writeEditorState(t, root, `{

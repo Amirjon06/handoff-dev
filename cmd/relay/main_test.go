@@ -6,11 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/session"
 )
@@ -124,7 +124,7 @@ func TestCapturePrintsSnapshotDetails(t *testing.T) {
 
 func TestRestorePrintsPlan(t *testing.T) {
 	repoRoot, commit := initGitRepo(t)
-	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+	path := writeTestSessionWithEditor(t, repoRoot, gitstate.State{
 		Root:   repoRoot,
 		Name:   "handoff-dev",
 		Remote: "https://github.com/Amirjon06/handoff-dev.git",
@@ -142,7 +142,7 @@ func TestRestorePrintsPlan(t *testing.T) {
 				Content:         "# Changed\n",
 			},
 		},
-	})
+	}, testEditorState(repoRoot))
 
 	var stdout bytes.Buffer
 	err := run(context.Background(), []string{"restore", path}, &stdout)
@@ -161,6 +161,8 @@ func TestRestorePrintsPlan(t *testing.T) {
 		"Git dirty: true",
 		"Changed files:",
 		"- modified README.md (11 bytes captured, sha256 fa8549bc791b)",
+		"Editor state: 1 open file(s)",
+		"Active editor file: README.md",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("restore output missing %q:\n%s", want, got)
@@ -257,7 +259,8 @@ func TestRestoreRejectsCommitMismatch(t *testing.T) {
 
 func TestRestoreApplyWritesCapturedFiles(t *testing.T) {
 	repoRoot, commit := initGitRepo(t)
-	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+	verifiedRoot := strings.TrimSpace(runGit(t, repoRoot, "rev-parse", "--show-toplevel"))
+	path := writeTestSessionWithEditor(t, repoRoot, gitstate.State{
 		Root:   repoRoot,
 		Remote: "https://github.com/Amirjon06/handoff-dev.git",
 		Branch: "main",
@@ -278,7 +281,7 @@ func TestRestoreApplyWritesCapturedFiles(t *testing.T) {
 				Status: "modified",
 			},
 		},
-	})
+	}, testEditorState("/source/repo"))
 
 	var stdout bytes.Buffer
 	err := run(context.Background(), []string{"restore", "--apply", path}, &stdout)
@@ -293,10 +296,21 @@ func TestRestoreApplyWritesCapturedFiles(t *testing.T) {
 	if string(content) != "# Applied\n" {
 		t.Fatalf("README content = %q", content)
 	}
+	editor, err := editorstate.ReadWorkspace(repoRoot)
+	if err != nil {
+		t.Fatalf("ReadWorkspace returned error: %v", err)
+	}
+	if editor == nil {
+		t.Fatal("editor state = nil")
+	}
+	if editor.WorkspaceFolder == nil || *editor.WorkspaceFolder != verifiedRoot {
+		t.Fatalf("workspace folder = %#v, want %q", editor.WorkspaceFolder, verifiedRoot)
+	}
 	got := stdout.String()
 	for _, want := range []string{
 		"Applied 1 changed file(s)",
 		"Skipped 1 changed file(s) without captured content: modified notes.txt",
+		"Restored editor state: 1 open file(s)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stdout missing %q:\n%s", want, got)
@@ -306,7 +320,7 @@ func TestRestoreApplyWritesCapturedFiles(t *testing.T) {
 
 func TestRestoreApplyDryRunDoesNotWriteFiles(t *testing.T) {
 	repoRoot, commit := initGitRepo(t)
-	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+	path := writeTestSessionWithEditor(t, repoRoot, gitstate.State{
 		Root:   repoRoot,
 		Remote: "https://github.com/Amirjon06/handoff-dev.git",
 		Branch: "main",
@@ -327,7 +341,7 @@ func TestRestoreApplyDryRunDoesNotWriteFiles(t *testing.T) {
 				Status: "modified",
 			},
 		},
-	})
+	}, testEditorState("/source/repo"))
 
 	var stdout bytes.Buffer
 	err := run(context.Background(), []string{"restore", "--apply", "--dry-run", path}, &stdout)
@@ -342,10 +356,18 @@ func TestRestoreApplyDryRunDoesNotWriteFiles(t *testing.T) {
 	if string(content) != "# Test Repo\n" {
 		t.Fatalf("README content = %q", content)
 	}
+	editor, err := editorstate.ReadWorkspace(repoRoot)
+	if err != nil {
+		t.Fatalf("ReadWorkspace returned error: %v", err)
+	}
+	if editor != nil {
+		t.Fatalf("editor state = %#v, want nil", editor)
+	}
 	got := stdout.String()
 	for _, want := range []string{
 		"Would apply 1 changed file(s)",
 		"Skipped 1 changed file(s) without captured content: modified notes.txt",
+		"Would restore editor state: 1 open file(s)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stdout missing %q:\n%s", want, got)
@@ -497,6 +519,12 @@ func writeTestSession(t *testing.T, root string, commit string) string {
 func writeTestSessionWithGit(t *testing.T, root string, git gitstate.State) string {
 	t.Helper()
 
+	return writeTestSessionWithEditor(t, root, git, nil)
+}
+
+func writeTestSessionWithEditor(t *testing.T, root string, git gitstate.State, editor *editorstate.State) string {
+	t.Helper()
+
 	if git.Name == "" {
 		git.Name = filepath.Base(root)
 	}
@@ -507,7 +535,7 @@ func writeTestSessionWithGit(t *testing.T, root string, git gitstate.State) stri
 	}
 	defer file.Close()
 
-	captured := session.New("test-machine", git, time.Date(2026, 8, 10, 18, 30, 0, 0, time.UTC))
+	captured := session.NewWithEditor("test-machine", git, editor, time.Date(2026, 8, 10, 18, 30, 0, 0, time.UTC))
 
 	if err := session.WriteJSON(file, captured); err != nil {
 		t.Fatalf("WriteJSON returned error: %v", err)
@@ -519,31 +547,30 @@ func writeTestSessionWithGit(t *testing.T, root string, git gitstate.State) stri
 func writeTestEditorState(t *testing.T, root string) {
 	t.Helper()
 
-	dir := filepath.Join(root, ".staterelay")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("MkdirAll returned error: %v", err)
+	if err := editorstate.WriteWorkspace(root, testEditorState(root)); err != nil {
+		t.Fatalf("WriteWorkspace returned error: %v", err)
 	}
+}
 
-	content := `{
-  "schema_version": 1,
-  "captured_at": "2026-08-15T18:30:00Z",
-  "workspace_folder": ` + strconv.Quote(root) + `,
-  "active_file": "README.md",
-  "open_files": [
-    {
-      "path": "README.md",
-      "language_id": "markdown",
-      "is_dirty": true,
-      "selections": [
-        {
-          "anchor": { "line": 3, "character": 0 },
-          "active": { "line": 3, "character": 8 }
-        }
-      ]
-    }
-  ]
-}`
-	if err := os.WriteFile(filepath.Join(dir, "editor-state.json"), []byte(content), 0o644); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
+func testEditorState(root string) *editorstate.State {
+	activeFile := "README.md"
+	return &editorstate.State{
+		SchemaVersion:   editorstate.SchemaVersion,
+		CapturedAt:      "2026-08-15T18:30:00Z",
+		WorkspaceFolder: &root,
+		ActiveFile:      &activeFile,
+		OpenFiles: []editorstate.File{
+			{
+				Path:       "README.md",
+				LanguageID: "markdown",
+				IsDirty:    true,
+				Selections: []editorstate.Selection{
+					{
+						Anchor: editorstate.Position{Line: 3, Character: 0},
+						Active: editorstate.Position{Line: 3, Character: 8},
+					},
+				},
+			},
+		},
 	}
 }
