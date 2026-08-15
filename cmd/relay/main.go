@@ -260,6 +260,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	apply := fs.Bool("apply", false, "write captured file snapshots after validation")
 	dryRun := fs.Bool("dry-run", false, "validate apply without writing captured file snapshots")
 	path := fs.String("path", "", "project path to restore into")
+	cloneDir := fs.String("clone-dir", "", "clone missing repository into this parent directory")
 	inbox := fs.String("inbox", "", "directory for received sessions; use latest as the session name")
 
 	if err := fs.Parse(args); err != nil {
@@ -280,9 +281,9 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	restorePath := captured.Git.Root
-	if *path != "" {
-		restorePath = *path
+	restorePath, cloned, err := resolveRestorePath(ctx, captured.Git, *path, *cloneDir)
+	if err != nil {
+		return err
 	}
 
 	verifiedRoot, err := gitstate.Root(ctx, restorePath)
@@ -290,7 +291,9 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("verify git root: %w", err)
 	}
 	if *path == "" && !samePath(verifiedRoot, captured.Git.Root) {
-		return fmt.Errorf("session root %s resolved to %s", captured.Git.Root, verifiedRoot)
+		if *cloneDir == "" {
+			return fmt.Errorf("session root %s resolved to %s", captured.Git.Root, verifiedRoot)
+		}
 	}
 
 	currentBranch, err := gitstate.Branch(ctx, verifiedRoot)
@@ -340,8 +343,14 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 
 	fmt.Fprintln(stdout, "Restore plan")
 	fmt.Fprintf(stdout, "Session file: %s\n", sessionPath)
+	if cloned {
+		fmt.Fprintf(stdout, "Cloned repository to: %s\n", verifiedRoot)
+	}
 	fmt.Fprintf(stdout, "Git root: %s\n", captured.Git.Root)
 	if *path != "" {
+		fmt.Fprintf(stdout, "Restore root: %s\n", verifiedRoot)
+	}
+	if *cloneDir != "" {
 		fmt.Fprintf(stdout, "Restore root: %s\n", verifiedRoot)
 	}
 	fmt.Fprintf(stdout, "Git name: %s\n", captured.Git.Name)
@@ -361,6 +370,44 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	printEditorState(stdout, captured.Editor)
 	return nil
+}
+
+func resolveRestorePath(ctx context.Context, git gitstate.State, path string, cloneDir string) (string, bool, error) {
+	if path != "" && cloneDir != "" {
+		return "", false, fmt.Errorf("restore cannot use --path and --clone-dir together")
+	}
+	if path != "" {
+		return path, false, nil
+	}
+	if cloneDir == "" {
+		return git.Root, false, nil
+	}
+	if !safeRepoName(git.Name) {
+		return "", false, fmt.Errorf("unsafe repository name %q", git.Name)
+	}
+
+	destination := filepath.Join(cloneDir, git.Name)
+	if _, err := os.Stat(destination); err == nil {
+		return destination, false, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", false, fmt.Errorf("inspect clone destination: %w", err)
+	}
+
+	if err := gitstate.Clone(ctx, git.Remote, git.Branch, destination); err != nil {
+		return "", false, err
+	}
+	return destination, true, nil
+}
+
+func safeRepoName(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	if strings.Contains(name, "/") || strings.Contains(name, `\`) {
+		return false
+	}
+	return filepath.Clean(name) == name
 }
 
 func resolveRestoreSession(ctx context.Context, name string, inbox string) (string, error) {
@@ -524,7 +571,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  relay capture [--path PATH] [--json] [--out FILE]")
-	fmt.Fprintln(w, "  relay restore [--path PATH] [--inbox DIR] [--apply] [--dry-run] SESSION_FILE|latest")
+	fmt.Fprintln(w, "  relay restore [--path PATH] [--clone-dir DIR] [--inbox DIR] [--apply] [--dry-run] SESSION_FILE|latest")
 	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR]")
 	fmt.Fprintln(w, "  relay inbox [--inbox DIR]")
 	fmt.Fprintln(w, "  relay ping --to URL")

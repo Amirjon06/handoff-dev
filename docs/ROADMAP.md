@@ -52,6 +52,7 @@ Goal: move one session between two machines.
 - HTTP transport with validated session storage
 - inbox listing for received sessions
 - destination restore from the latest received session
+- clone missing repositories during restore
 
 ## Phase 6: Uncommitted Work
 

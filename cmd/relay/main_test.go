@@ -356,6 +356,76 @@ func TestRestoreAcceptsPathOverride(t *testing.T) {
 	}
 }
 
+func TestRestoreClonesMissingRepository(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	cloneParent := t.TempDir()
+	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+		Root:   "/source/staterelay",
+		Name:   "staterelay",
+		Remote: repoRoot,
+		Branch: "main",
+		Commit: commit,
+	})
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"restore", "--clone-dir", cloneParent, path}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	cloneRoot := filepath.Join(cloneParent, "staterelay")
+	if _, err := os.Stat(filepath.Join(cloneRoot, ".git")); err != nil {
+		t.Fatalf("cloned .git missing: %v", err)
+	}
+	verifiedCloneRoot := strings.TrimSpace(runGit(t, cloneRoot, "rev-parse", "--show-toplevel"))
+	got := stdout.String()
+	for _, want := range []string{
+		"Restore plan",
+		"Cloned repository to: " + verifiedCloneRoot,
+		"Restore root: " + verifiedCloneRoot,
+		"Git root: /source/staterelay",
+		"Git commit: " + commit,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("restore output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRestoreRejectsPathWithCloneDir(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	path := writeTestSession(t, repoRoot, commit)
+	var stdout bytes.Buffer
+
+	err := run(context.Background(), []string{"restore", "--path", repoRoot, "--clone-dir", t.TempDir(), path}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error with path and clone-dir")
+	}
+	if err.Error() != "restore cannot use --path and --clone-dir together" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestRestoreRejectsUnsafeCloneRepoName(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	path := writeTestSessionWithGit(t, repoRoot, gitstate.State{
+		Root:   "/source/evil",
+		Name:   "../evil",
+		Remote: repoRoot,
+		Branch: "main",
+		Commit: commit,
+	})
+	var stdout bytes.Buffer
+
+	err := run(context.Background(), []string{"restore", "--clone-dir", t.TempDir(), path}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error for unsafe repo name")
+	}
+	if err.Error() != `unsafe repository name "../evil"` {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestRestoreUsesLatestInboxSession(t *testing.T) {
 	repoRoot, commit := initGitRepo(t)
 	inbox := t.TempDir()

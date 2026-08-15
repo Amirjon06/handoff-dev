@@ -74,6 +74,10 @@ func Commit(ctx context.Context, path string) (string, error) {
 	return commit(ctx, gitRunner{}, path)
 }
 
+func Clone(ctx context.Context, remote string, branch string, destination string) error {
+	return clone(ctx, gitRunner{}, remote, branch, destination)
+}
+
 func Remote(ctx context.Context, path string) (string, error) {
 	return remote(ctx, gitRunner{}, path)
 }
@@ -168,6 +172,28 @@ func commit(ctx context.Context, runner commandRunner, path string) (string, err
 	}
 
 	return currentCommit, nil
+}
+
+func clone(ctx context.Context, runner commandRunner, remote string, branch string, destination string) error {
+	if strings.TrimSpace(remote) == "" {
+		return errors.New("clone remote is required")
+	}
+	if strings.TrimSpace(branch) == "" {
+		return errors.New("clone branch is required")
+	}
+	if strings.TrimSpace(destination) == "" {
+		return errors.New("clone destination is required")
+	}
+
+	parent := filepath.Dir(destination)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return fmt.Errorf("create clone parent: %w", err)
+	}
+
+	if _, err := runner.Run(ctx, parent, "clone", "--branch", branch, remote, destination); err != nil {
+		return fmt.Errorf("clone %s: %w", remote, err)
+	}
+	return nil
 }
 
 func remote(ctx context.Context, runner commandRunner, path string) (string, error) {

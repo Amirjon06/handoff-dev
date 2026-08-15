@@ -134,6 +134,49 @@ func TestCommitReturnsHelpfulError(t *testing.T) {
 	}
 }
 
+func TestCloneRunsGitCloneIntoDestinationParent(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "projects", "staterelay")
+	runner := &fakeRunner{output: ""}
+
+	err := clone(context.Background(), runner, "https://github.com/Amirjon06/handoff-dev.git", "main", destination)
+	if err != nil {
+		t.Fatalf("clone returned error: %v", err)
+	}
+
+	want := filepath.Dir(destination) + " [clone --branch main https://github.com/Amirjon06/handoff-dev.git " + destination + "]"
+	if got := runner.calls[0]; got != want {
+		t.Fatalf("git call = %q, want %q", got, want)
+	}
+}
+
+func TestCloneRequiresRemoteBranchAndDestination(t *testing.T) {
+	runner := &fakeRunner{output: ""}
+
+	tests := []struct {
+		name        string
+		remote      string
+		branch      string
+		destination string
+		want        string
+	}{
+		{name: "remote", branch: "main", destination: "/repo", want: "clone remote is required"},
+		{name: "branch", remote: "origin", destination: "/repo", want: "clone branch is required"},
+		{name: "destination", remote: "origin", branch: "main", want: "clone destination is required"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := clone(context.Background(), runner, tt.remote, tt.branch, tt.destination)
+			if err == nil {
+				t.Fatal("clone returned nil error")
+			}
+			if err.Error() != tt.want {
+				t.Fatalf("error = %q, want %q", err.Error(), tt.want)
+			}
+		})
+	}
+}
+
 func TestRemoteReturnsOriginURL(t *testing.T) {
 	runner := &fakeRunner{output: "https://github.com/Amirjon06/handoff-dev.git"}
 
