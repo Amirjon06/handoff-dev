@@ -621,6 +621,39 @@ func TestCaptureJSONIncludesChangedFiles(t *testing.T) {
 	assertChangedFile(t, captured.Git.ChangedFiles, "notes.txt", "untracked")
 }
 
+func TestCaptureJSONSignsWithDeviceIdentity(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	var identityOut bytes.Buffer
+	err := run(context.Background(), []string{"identity", "--path", repoRoot, "--name", "test-mac"}, &identityOut)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	identity, err := deviceidentity.Load(deviceidentity.Path(repoRoot))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err = run(context.Background(), []string{"capture", "--path", repoRoot, "--json"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	captured, err := session.ReadJSON(strings.NewReader(stdout.String()))
+	if err != nil {
+		t.Fatalf("ReadJSON returned error: %v", err)
+	}
+
+	if captured.Signature == nil {
+		t.Fatal("signature = nil")
+	}
+	if captured.Signature.Fingerprint != identity.Fingerprint {
+		t.Fatalf("signature fingerprint = %q, want %q", captured.Signature.Fingerprint, identity.Fingerprint)
+	}
+	if len(captured.Git.ChangedFiles) != 0 {
+		t.Fatalf("changed files = %#v, want none", captured.Git.ChangedFiles)
+	}
+}
+
 func TestCaptureJSONIncludesEditorState(t *testing.T) {
 	repoRoot, _ := initGitRepo(t)
 	writeTestEditorState(t, repoRoot)

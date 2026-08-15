@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Amirjon06/handoff-dev/internal/browserstate"
+	"github.com/Amirjon06/handoff-dev/internal/deviceidentity"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/terminalstate"
 )
@@ -105,6 +106,61 @@ func TestSessionJSONRoundTripWithBrowserState(t *testing.T) {
 	}
 	if got.Browser.Tabs[0].URL != "https://go.dev/doc/" {
 		t.Fatalf("browser url = %q", got.Browser.Tabs[0].URL)
+	}
+}
+
+func TestSignedSessionJSONRoundTrip(t *testing.T) {
+	identity, err := deviceidentity.New("amir-macbook", time.Date(2026, 8, 15, 23, 0, 0, 0, time.UTC), bytes.NewReader(bytes.Repeat([]byte{8}, 32)))
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	original := New("amir-macbook", testGitState(), time.Date(2026, 8, 10, 18, 30, 0, 0, time.UTC))
+	signed, err := Sign(original, identity)
+	if err != nil {
+		t.Fatalf("Sign returned error: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := WriteJSON(&buf, signed); err != nil {
+		t.Fatalf("WriteJSON returned error: %v", err)
+	}
+	got, err := ReadJSON(strings.NewReader(buf.String()))
+	if err != nil {
+		t.Fatalf("ReadJSON returned error: %v", err)
+	}
+
+	if got.Signature == nil {
+		t.Fatal("signature = nil")
+	}
+	if got.Signature.DeviceName != "amir-macbook" {
+		t.Fatalf("device name = %q", got.Signature.DeviceName)
+	}
+	if got.Signature.Fingerprint != identity.Fingerprint {
+		t.Fatalf("fingerprint = %q, want %q", got.Signature.Fingerprint, identity.Fingerprint)
+	}
+}
+
+func TestReadJSONRejectsTamperedSignedSession(t *testing.T) {
+	identity, err := deviceidentity.New("amir-macbook", time.Date(2026, 8, 15, 23, 0, 0, 0, time.UTC), bytes.NewReader(bytes.Repeat([]byte{8}, 32)))
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	signed, err := Sign(New("amir-macbook", testGitState(), time.Date(2026, 8, 10, 18, 30, 0, 0, time.UTC)), identity)
+	if err != nil {
+		t.Fatalf("Sign returned error: %v", err)
+	}
+	signed.Git.Branch = "feature/tampered"
+
+	var buf bytes.Buffer
+	if err := WriteJSON(&buf, signed); err != nil {
+		t.Fatalf("WriteJSON returned error: %v", err)
+	}
+	_, err = ReadJSON(strings.NewReader(buf.String()))
+	if err == nil {
+		t.Fatal("ReadJSON returned nil error for tampered signature")
+	}
+	if got := err.Error(); got != "session signature: session signature verification failed" {
+		t.Fatalf("error = %q", got)
 	}
 }
 
@@ -344,5 +400,15 @@ func TestReadJSONRejectsUnsupportedSchema(t *testing.T) {
 
 	if got := err.Error(); got != "unsupported session schema version 99" {
 		t.Fatalf("error = %q", got)
+	}
+}
+
+func testGitState() gitstate.State {
+	return gitstate.State{
+		Name:   "handoff-dev",
+		Root:   "/Users/amir/projects/handoff-dev",
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: "faaf307bf4fa86c316586804bf88f3096511aabd",
 	}
 }

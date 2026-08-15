@@ -243,6 +243,9 @@ func parseStatus(status string) []ChangedFile {
 		if idx := strings.LastIndex(path, " -> "); idx >= 0 {
 			path = path[idx+4:]
 		}
+		if isStateRelayInternal(path) {
+			continue
+		}
 
 		files = append(files, ChangedFile{
 			Path:   path,
@@ -323,4 +326,9 @@ func safeJoin(root string, path string) (string, bool) {
 	}
 
 	return filepath.Join(root, cleanPath), true
+}
+
+func isStateRelayInternal(path string) bool {
+	cleanPath := filepath.ToSlash(filepath.Clean(path))
+	return cleanPath == ".staterelay" || strings.HasPrefix(cleanPath, ".staterelay/")
 }

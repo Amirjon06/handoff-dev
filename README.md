@@ -16,6 +16,7 @@ StateRelay currently captures and restores the core parts of a developer handoff
 - Local device identity
 - Trusted device fingerprints
 - Pair verification codes
+- Signed session files
 - Received session history through a local inbox
 - Local-network transfer between two machines over HTTP
 
@@ -67,6 +68,7 @@ Think of it as Apple Handoff for developers, but across macOS, Windows, and Linu
 | Device identity | Ed25519 | Stable local identity for future pairing |
 | Trust store | JSON + Ed25519 fingerprints | Remember approved devices locally |
 | Pair code | Go crypto libraries | Compare a short verification code before trusting a device |
+| Session signatures | Ed25519 | Detect tampered handoff files and identify the source device |
 | First transport | HTTP | Simple local-network transfer |
 | CI | GitHub Actions | Verify Go code, CLI builds, and extension checks |
 
@@ -139,7 +141,7 @@ go run ./cmd/relay ping --to http://127.0.0.1:8765
 go run ./cmd/relay send --to http://127.0.0.1:8765 session.json
 ```
 
-Current capture output includes the Git repository root, repository name, origin remote, active branch, current commit, dirty working tree status, captured file snapshot details, editor state, terminal state, and browser state. Captured text snapshots include SHA-256 hashes for integrity checks, and restore plans show a short hash prefix for captured files. Use `--json` to produce the first StateRelay session artifact. Use `relay terminal --path . --cwd DIR` to write `.staterelay/terminal-state.json` before capture. Use `relay browser --path . --url URL` to write `.staterelay/browser-state.json`; repeat `--url` to record multiple tabs. Use `relay identity --path .` to create or load a local Ed25519 device identity. Use `relay pair-code` to compare a short code with another device before adding its fingerprint to the trust store. Use `relay trust add` and `relay trust list` to maintain trusted device fingerprints in `.staterelay/trusted-devices.json`. Restore rejects malformed or unsafe session files before verifying that the target checkout branch and commit match. Use `restore --path` to validate a different checkout. Use `restore --clone-dir DIR` to clone a missing repository into that parent directory before validation. Use `restore --inbox DIR latest` to restore from the newest received handoff without copying the full JSON filename. Use `restore --apply --dry-run` to validate an apply without writing files. Use `restore --apply` to write captured text snapshots, editor state, terminal state, and browser state into a clean working tree; dirty destinations are rejected with the blocking file list by default, content hashes are checked before files are written, and uncaptured files are reported as skipped. Use `--conflict keep-both` to preserve a locally changed file and write the incoming version beside it with a `.staterelay-source` suffix.
+Current capture output includes the Git repository root, repository name, origin remote, active branch, current commit, dirty working tree status, captured file snapshot details, editor state, terminal state, and browser state. Captured text snapshots include SHA-256 hashes for integrity checks, and restore plans show a short hash prefix for captured files. Use `--json` to produce the first StateRelay session artifact. If a local device identity exists, StateRelay signs the session JSON with Ed25519 and verifies that signature when the session is read later. StateRelay keeps its own `.staterelay` files out of captured Git changes so private identity and trust data are not transferred as project files. Use `relay terminal --path . --cwd DIR` to write `.staterelay/terminal-state.json` before capture. Use `relay browser --path . --url URL` to write `.staterelay/browser-state.json`; repeat `--url` to record multiple tabs. Use `relay identity --path .` to create or load a local Ed25519 device identity. Use `relay pair-code` to compare a short code with another device before adding its fingerprint to the trust store. Use `relay trust add` and `relay trust list` to maintain trusted device fingerprints in `.staterelay/trusted-devices.json`. Restore rejects malformed or unsafe session files before verifying that the target checkout branch and commit match. Use `restore --path` to validate a different checkout. Use `restore --clone-dir DIR` to clone a missing repository into that parent directory before validation. Use `restore --inbox DIR latest` to restore from the newest received handoff without copying the full JSON filename. Use `restore --apply --dry-run` to validate an apply without writing files. Use `restore --apply` to write captured text snapshots, editor state, terminal state, and browser state into a clean working tree; dirty destinations are rejected with the blocking file list by default, content hashes are checked before files are written, and uncaptured files are reported as skipped. Use `--conflict keep-both` to preserve a locally changed file and write the incoming version beside it with a `.staterelay-source` suffix.
 
 The first network handoff path is HTTP-based. `relay listen` accepts validated session JSON at `/sessions` and stores it in an inbox directory. `relay ping` checks that a listener is reachable before sending. `relay send` posts an existing session file to another StateRelay listener. `relay inbox` lists received sessions with the repo, branch, commit, dirty state, and changed-file count. This is still a development transport and does not include TLS or device discovery yet.
 
@@ -220,7 +222,7 @@ Planned capture example:
 
 ## Development Status
 
-This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, terminal working-directory capture, browser tab URL capture, local device identity generation, pair verification codes, trusted-device fingerprint storage, a VS Code extension that captures and restores editor state, an early HTTP path for sending, listing, and restoring received session files, CI checks for both the Go code and extension, and release build scripts for common desktop platforms.
+This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, signed session files, terminal working-directory capture, browser tab URL capture, local device identity generation, pair verification codes, trusted-device fingerprint storage, a VS Code extension that captures and restores editor state, an early HTTP path for sending, listing, and restoring received session files, CI checks for both the Go code and extension, and release build scripts for common desktop platforms.
 
 ## Roadmap
 

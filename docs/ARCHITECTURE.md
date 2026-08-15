@@ -27,6 +27,7 @@ The Go agent owns:
 - command-line interface
 - Git inspection
 - session serialization
+- session signing and verification
 - local state file reads and writes
 - local device identity
 - pair verification codes

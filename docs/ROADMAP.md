@@ -81,6 +81,7 @@ Goal: make the network flow usable and trustworthy.
 - mDNS discovery
 - local Ed25519 device identity
 - verification codes with `relay pair-code`
+- signed session files
 - trusted device storage with `relay trust`
 - TLS encryption
 

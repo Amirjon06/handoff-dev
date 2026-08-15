@@ -543,6 +543,7 @@ func runInbox(ctx context.Context, args []string, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "  commit: %s\n", shortHash(captured.Git.Commit))
 		fmt.Fprintf(stdout, "  dirty: %t\n", captured.Git.Dirty)
 		fmt.Fprintf(stdout, "  changed files: %d\n", len(captured.Git.ChangedFiles))
+		printSessionSignature(stdout, captured, "  ")
 		if captured.Editor != nil {
 			fmt.Fprintf(stdout, "  editor files: %d\n", len(captured.Editor.OpenFiles))
 		}
@@ -591,6 +592,10 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 			hostname = "unknown"
 		}
 		captured := session.NewWithWorkspace(hostname, state, editor, terminal, browser, time.Now())
+		captured, err = signSessionFromWorkspace(captured, state.Root)
+		if err != nil {
+			return err
+		}
 
 		if *out == "" {
 			return session.WriteJSON(stdout, captured)
@@ -748,6 +753,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	fmt.Fprintf(stdout, "Git branch: %s\n", captured.Git.Branch)
 	fmt.Fprintf(stdout, "Git commit: %s\n", captured.Git.Commit)
 	fmt.Fprintf(stdout, "Git dirty: %t\n", captured.Git.Dirty)
+	printSessionSignature(stdout, captured, "")
 	if len(captured.Git.ChangedFiles) > 0 {
 		fmt.Fprintln(stdout, "Changed files:")
 		for _, file := range captured.Git.ChangedFiles {
@@ -842,6 +848,21 @@ func readSessionFile(path string) (session.Session, error) {
 		return session.Session{}, fmt.Errorf("read session: %w", err)
 	}
 	return captured, nil
+}
+
+func signSessionFromWorkspace(captured session.Session, root string) (session.Session, error) {
+	identity, err := deviceidentity.Load(deviceidentity.Path(root))
+	if os.IsNotExist(err) {
+		return captured, nil
+	}
+	if err != nil {
+		return session.Session{}, fmt.Errorf("read device identity: %w", err)
+	}
+	signed, err := session.Sign(captured, identity)
+	if err != nil {
+		return session.Session{}, fmt.Errorf("sign session: %w", err)
+	}
+	return signed, nil
 }
 
 func formatChangedFiles(files []gitstate.ChangedFile) string {
@@ -1012,6 +1033,14 @@ func printBrowserApplyResult(stdout io.Writer, action string, browser *browserst
 		return
 	}
 	fmt.Fprintf(stdout, "%s browser tabs: %d\n", action, len(browser.Tabs))
+}
+
+func printSessionSignature(stdout io.Writer, captured session.Session, indent string) {
+	if captured.Signature == nil {
+		fmt.Fprintf(stdout, "%sSignature: unsigned\n", indent)
+		return
+	}
+	fmt.Fprintf(stdout, "%sSignature: signed by %s (%s)\n", indent, captured.Signature.DeviceName, shortHash(captured.Signature.Fingerprint))
 }
 
 func sha256Hex(content []byte) string {

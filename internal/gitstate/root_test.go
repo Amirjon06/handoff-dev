@@ -259,6 +259,31 @@ func TestCaptureReturnsGitState(t *testing.T) {
 	}
 }
 
+func TestCaptureSkipsStateRelayInternalFiles(t *testing.T) {
+	expectedRoot := t.TempDir()
+	runner := &fakeRunner{
+		outputs: map[string]string{
+			". [rev-parse --show-toplevel]":                    expectedRoot,
+			expectedRoot + " [config --get remote.origin.url]": "https://github.com/Amirjon06/handoff-dev.git",
+			expectedRoot + " [branch --show-current]":          "main",
+			expectedRoot + " [rev-parse HEAD]":                 "faaf307bf4fa86c316586804bf88f3096511aabd",
+			expectedRoot + " [status --porcelain=v1]":          "?? .staterelay/device-identity.json\n?? .staterelay/trusted-devices.json\n?? notes.txt",
+		},
+	}
+
+	got, err := capture(context.Background(), runner, "")
+	if err != nil {
+		t.Fatalf("capture returned error: %v", err)
+	}
+
+	if len(got.ChangedFiles) != 1 {
+		t.Fatalf("changed file count = %d, want 1", len(got.ChangedFiles))
+	}
+	if got.ChangedFiles[0].Path != "notes.txt" {
+		t.Fatalf("changed file path = %q", got.ChangedFiles[0].Path)
+	}
+}
+
 func TestChangesReturnsCleanWorkingTree(t *testing.T) {
 	runner := &fakeRunner{output: ""}
 
