@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/session"
 )
@@ -63,13 +64,17 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	editor, err := editorstate.ReadWorkspace(state.Root)
+	if err != nil {
+		return fmt.Errorf("read editor state: %w", err)
+	}
 
 	if *jsonOutput || *out != "" {
 		hostname, err := os.Hostname()
 		if err != nil {
 			hostname = "unknown"
 		}
-		captured := session.New(hostname, state, time.Now())
+		captured := session.NewWithEditor(hostname, state, editor, time.Now())
 
 		if *out == "" {
 			return session.WriteJSON(stdout, captured)
@@ -101,6 +106,12 @@ func runCapture(ctx context.Context, args []string, stdout io.Writer) error {
 			continue
 		}
 		fmt.Fprintf(stdout, "Changed file: %s %s (content not captured)\n", file.Status, file.Path)
+	}
+	if editor != nil {
+		fmt.Fprintf(stdout, "Editor state: %d open file(s)\n", len(editor.OpenFiles))
+		if editor.ActiveFile != nil {
+			fmt.Fprintf(stdout, "Active editor file: %s\n", *editor.ActiveFile)
+		}
 	}
 	return nil
 }

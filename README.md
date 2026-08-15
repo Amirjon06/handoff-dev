@@ -107,7 +107,7 @@ Current VS Code extension command:
 StateRelay: Capture Editor State
 ```
 
-The command writes `.staterelay/editor-state.json` with the workspace folder, active file, open text documents, dirty flags, and visible editor selections.
+The command writes `.staterelay/editor-state.json` with the workspace folder, active file, open text documents, dirty flags, and visible editor selections. `relay capture --json` includes that editor state when the file is present.
 
 Planned commands:
 
@@ -162,7 +162,7 @@ Planned capture example:
 
 ## Development Status
 
-This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, plus an early VS Code extension that captures editor state into a local JSON file.
+This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, plus a VS Code extension that captures editor state and feeds it into session JSON.
 
 ## Roadmap
 

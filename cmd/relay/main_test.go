@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -67,6 +68,35 @@ func TestCaptureJSONIncludesChangedFiles(t *testing.T) {
 	}
 	assertChangedFile(t, captured.Git.ChangedFiles, "README.md", "modified")
 	assertChangedFile(t, captured.Git.ChangedFiles, "notes.txt", "untracked")
+}
+
+func TestCaptureJSONIncludesEditorState(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	writeTestEditorState(t, repoRoot)
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"capture", "--path", repoRoot, "--json"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	captured, err := session.ReadJSON(strings.NewReader(stdout.String()))
+	if err != nil {
+		t.Fatalf("ReadJSON returned error: %v", err)
+	}
+
+	if captured.Editor == nil {
+		t.Fatal("editor state = nil")
+	}
+	if captured.Editor.ActiveFile == nil || *captured.Editor.ActiveFile != "README.md" {
+		t.Fatalf("active file = %#v", captured.Editor.ActiveFile)
+	}
+	if len(captured.Editor.OpenFiles) != 1 {
+		t.Fatalf("open file count = %d, want 1", len(captured.Editor.OpenFiles))
+	}
+	if captured.Editor.OpenFiles[0].Selections[0].Active.Line != 3 {
+		t.Fatalf("active line = %d, want 3", captured.Editor.OpenFiles[0].Selections[0].Active.Line)
+	}
 }
 
 func TestCapturePrintsSnapshotDetails(t *testing.T) {
@@ -484,4 +514,36 @@ func writeTestSessionWithGit(t *testing.T, root string, git gitstate.State) stri
 	}
 
 	return file.Name()
+}
+
+func writeTestEditorState(t *testing.T, root string) {
+	t.Helper()
+
+	dir := filepath.Join(root, ".staterelay")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+
+	content := `{
+  "schema_version": 1,
+  "captured_at": "2026-08-15T18:30:00Z",
+  "workspace_folder": ` + strconv.Quote(root) + `,
+  "active_file": "README.md",
+  "open_files": [
+    {
+      "path": "README.md",
+      "language_id": "markdown",
+      "is_dirty": true,
+      "selections": [
+        {
+          "anchor": { "line": 3, "character": 0 },
+          "active": { "line": 3, "character": 8 }
+        }
+      ]
+    }
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(dir, "editor-state.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
 }

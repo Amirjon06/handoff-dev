@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 )
 
@@ -21,10 +22,11 @@ type Source struct {
 }
 
 type Session struct {
-	SchemaVersion int            `json:"schema_version"`
-	CapturedAt    time.Time      `json:"captured_at"`
-	Source        Source         `json:"source"`
-	Git           gitstate.State `json:"git"`
+	SchemaVersion int                `json:"schema_version"`
+	CapturedAt    time.Time          `json:"captured_at"`
+	Source        Source             `json:"source"`
+	Git           gitstate.State     `json:"git"`
+	Editor        *editorstate.State `json:"editor,omitempty"`
 }
 
 func New(hostname string, git gitstate.State, capturedAt time.Time) Session {
@@ -38,6 +40,12 @@ func New(hostname string, git gitstate.State, capturedAt time.Time) Session {
 		},
 		Git: git,
 	}
+}
+
+func NewWithEditor(hostname string, git gitstate.State, editor *editorstate.State, capturedAt time.Time) Session {
+	s := New(hostname, git, capturedAt)
+	s.Editor = editor
+	return s
 }
 
 func WriteJSON(w io.Writer, s Session) error {
@@ -85,6 +93,9 @@ func validate(s Session) error {
 	}
 	if err := validateChangedFiles(s.Git.ChangedFiles); err != nil {
 		return err
+	}
+	if err := editorstate.Validate(s.Editor); err != nil {
+		return fmt.Errorf("session editor: %w", err)
 	}
 
 	return nil
