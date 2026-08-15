@@ -4,17 +4,17 @@ Cross-platform developer workspace handoff.
 
 StateRelay lets you continue coding on another computer exactly where you stopped. The GitHub repository is named `handoff-dev`, while the product itself is called StateRelay.
 
-## What It Does
+## What It Does Today
 
-StateRelay captures enough development context from one machine to recreate that workspace on another machine:
+StateRelay currently captures and restores the core parts of a developer handoff:
 
 - Git repository name, remote, branch, and commit
 - Open editor files and cursor positions
 - Uncommitted work
-- Browser tabs
-- Terminal working directories
+- Received session history through a local inbox
+- Local-network transfer between two machines over HTTP
 
-The goal is simple:
+The project goal is simple:
 
 ```text
 MacBook
@@ -29,6 +29,8 @@ same files
 same cursor positions
 same unfinished work
 ```
+
+Future versions are planned to add browser-tab handoff, terminal-directory handoff, encrypted device pairing, and a background agent.
 
 ## Why It Exists
 
@@ -49,17 +51,16 @@ Think of it as Apple Handoff for developers, but across macOS, Windows, and Linu
 
 ## Tech Stack
 
-| Area | Technology | Why |
+| Area | Current Technology | Purpose |
 | --- | --- | --- |
-| Core app | Go | Fast cross-platform CLI and background agent |
+| Core app | Go | Cross-platform CLI and transfer logic |
 | Editor integration | TypeScript + VS Code API | Capture and restore editor state |
-| Browser integration | TypeScript + browser extension APIs | Capture and reopen useful tabs |
 | Session format | JSON | Portable, inspectable workspace metadata |
 | Repository state | Git | Branch, commit, remote, and dirty file detection |
-| Storage | SQLite | Local device, session, and transfer history |
 | First transport | HTTP | Simple local-network transfer |
-| Discovery | mDNS | Find nearby devices without typing IPs |
-| Security | TLS + device pairing | Protect source code and trusted-device identity |
+| CI | GitHub Actions | Verify Go code, CLI builds, and extension checks |
+
+Planned areas include mDNS discovery, device pairing, TLS, SQLite-backed history, browser-tab handoff, terminal-directory handoff, and a background agent.
 
 ## Installation
 
