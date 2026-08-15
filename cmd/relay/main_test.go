@@ -972,6 +972,72 @@ func TestRestoreUsesNamedInboxSession(t *testing.T) {
 	}
 }
 
+func TestRestoreRequireTrustedAcceptsTrustedSigner(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	path, identity := writeSignedTestSessionWithGit(t, repoRoot, gitstate.State{
+		Root:   repoRoot,
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+	})
+	store, _, err := truststore.Add(truststore.Store{}, "source-mac", identity.Fingerprint, time.Now())
+	if err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+	if err := truststore.Save(truststore.Path(repoRoot), store); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err = run(context.Background(), []string{"restore", "--path", repoRoot, "--require-trusted", path}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"Signature: signed by source-mac",
+		"Trusted signer: verified",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("restore output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRestoreRequireTrustedRejectsUnsignedSession(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	path := writeTestSession(t, repoRoot, commit)
+	var stdout bytes.Buffer
+
+	err := run(context.Background(), []string{"restore", "--path", repoRoot, "--require-trusted", path}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error for unsigned session")
+	}
+	if err.Error() != "session is unsigned" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestRestoreRequireTrustedRejectsUntrustedSigner(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	path, identity := writeSignedTestSessionWithGit(t, repoRoot, gitstate.State{
+		Root:   repoRoot,
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+	})
+	var stdout bytes.Buffer
+
+	err := run(context.Background(), []string{"restore", "--path", repoRoot, "--require-trusted", path}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error for untrusted signer")
+	}
+	if err.Error() != "session signer "+identity.Fingerprint+" is not trusted" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestRestoreRejectsEmptyInbox(t *testing.T) {
 	repoRoot, _ := initGitRepo(t)
 	inbox := filepath.Join(t.TempDir(), "missing")
@@ -1557,6 +1623,33 @@ func writeTestSessionWithWorkspace(t *testing.T, root string, git gitstate.State
 	}
 
 	return file.Name()
+}
+
+func writeSignedTestSessionWithGit(t *testing.T, root string, git gitstate.State) (string, deviceidentity.Identity) {
+	t.Helper()
+
+	if git.Name == "" {
+		git.Name = filepath.Base(root)
+	}
+	identity, err := deviceidentity.New("source-mac", time.Date(2026, 8, 15, 23, 0, 0, 0, time.UTC), bytes.NewReader(bytes.Repeat([]byte{6}, 32)))
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	captured := session.New("test-machine", git, time.Date(2026, 8, 10, 18, 30, 0, 0, time.UTC))
+	signed, err := session.Sign(captured, identity)
+	if err != nil {
+		t.Fatalf("Sign returned error: %v", err)
+	}
+
+	file, err := os.CreateTemp(t.TempDir(), "session-*.json")
+	if err != nil {
+		t.Fatalf("CreateTemp returned error: %v", err)
+	}
+	defer file.Close()
+	if err := session.WriteJSON(file, signed); err != nil {
+		t.Fatalf("WriteJSON returned error: %v", err)
+	}
+	return file.Name(), identity
 }
 
 func writeSessionFileAt(t *testing.T, path string, captured session.Session) {

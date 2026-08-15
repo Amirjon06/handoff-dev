@@ -644,6 +644,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	cloneDir := fs.String("clone-dir", "", "clone missing repository into this parent directory")
 	inbox := fs.String("inbox", "", "directory for received sessions; use latest as the session name")
 	conflict := fs.String("conflict", "reject", "conflict strategy: reject or keep-both")
+	requireTrusted := fs.Bool("require-trusted", false, "require the session signer to exist in the local trust store")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -678,6 +679,11 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	if *path == "" && !samePath(verifiedRoot, captured.Git.Root) {
 		if *cloneDir == "" {
 			return fmt.Errorf("session root %s resolved to %s", captured.Git.Root, verifiedRoot)
+		}
+	}
+	if *requireTrusted {
+		if err := verifyTrustedSession(captured, verifiedRoot); err != nil {
+			return err
 		}
 	}
 
@@ -754,6 +760,9 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	fmt.Fprintf(stdout, "Git commit: %s\n", captured.Git.Commit)
 	fmt.Fprintf(stdout, "Git dirty: %t\n", captured.Git.Dirty)
 	printSessionSignature(stdout, captured, "")
+	if *requireTrusted {
+		fmt.Fprintln(stdout, "Trusted signer: verified")
+	}
 	if len(captured.Git.ChangedFiles) > 0 {
 		fmt.Fprintln(stdout, "Changed files:")
 		for _, file := range captured.Git.ChangedFiles {
@@ -863,6 +872,24 @@ func signSessionFromWorkspace(captured session.Session, root string) (session.Se
 		return session.Session{}, fmt.Errorf("sign session: %w", err)
 	}
 	return signed, nil
+}
+
+func verifyTrustedSession(captured session.Session, root string) error {
+	if captured.Signature == nil {
+		return fmt.Errorf("session is unsigned")
+	}
+	store, err := truststore.Load(truststore.Path(root))
+	if err != nil {
+		return fmt.Errorf("read trusted devices: %w", err)
+	}
+	ok, err := truststore.Contains(store, captured.Signature.Fingerprint)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("session signer %s is not trusted", captured.Signature.Fingerprint)
+	}
+	return nil
 }
 
 func formatChangedFiles(files []gitstate.ChangedFile) string {
@@ -1078,7 +1105,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  relay capture [--path PATH] [--json] [--out FILE]")
-	fmt.Fprintln(w, "  relay restore [--path PATH] [--clone-dir DIR] [--inbox DIR] [--apply] [--dry-run] [--conflict reject|keep-both] SESSION_FILE|latest")
+	fmt.Fprintln(w, "  relay restore [--path PATH] [--clone-dir DIR] [--inbox DIR] [--apply] [--dry-run] [--conflict reject|keep-both] [--require-trusted] SESSION_FILE|latest")
 	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR]")
 	fmt.Fprintln(w, "  relay inbox [--inbox DIR]")
 	fmt.Fprintln(w, "  relay doctor [--path PATH] [--inbox DIR] [--to URL]")

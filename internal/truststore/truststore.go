@@ -125,6 +125,19 @@ func Remove(store Store, fingerprint string) (Store, bool, error) {
 	return store, removed, nil
 }
 
+func Contains(store Store, fingerprint string) (bool, error) {
+	fingerprint = strings.ToLower(strings.TrimSpace(fingerprint))
+	if !fingerprintPattern.MatchString(fingerprint) {
+		return false, fmt.Errorf("trusted device fingerprint must be 64 lowercase hex characters")
+	}
+	for _, device := range store.Devices {
+		if device.Fingerprint == fingerprint {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func ReadJSON(r io.Reader) (Store, error) {
 	var store Store
 	if err := json.NewDecoder(r).Decode(&store); err != nil {

@@ -70,6 +70,28 @@ func TestRemoveTrustedDevice(t *testing.T) {
 	}
 }
 
+func TestContainsFindsTrustedDevice(t *testing.T) {
+	store, _, err := Add(Store{}, "desktop", fingerprintA, time.Now())
+	if err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+
+	ok, err := Contains(store, strings.ToUpper(fingerprintA))
+	if err != nil {
+		t.Fatalf("Contains returned error: %v", err)
+	}
+	if !ok {
+		t.Fatal("contains = false, want true")
+	}
+}
+
+func TestContainsRejectsInvalidFingerprint(t *testing.T) {
+	_, err := Contains(Store{}, "bad")
+	if err == nil {
+		t.Fatal("Contains returned nil error for invalid fingerprint")
+	}
+}
+
 func TestSaveAndLoadRoundTrip(t *testing.T) {
 	store, _, err := Add(Store{}, "desktop", fingerprintA, time.Now())
 	if err != nil {

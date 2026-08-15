@@ -83,6 +83,7 @@ Goal: make the network flow usable and trustworthy.
 - verification codes with `relay pair-code`
 - signed session files
 - trusted device storage with `relay trust`
+- trusted restore guard with `restore --require-trusted`
 - TLS encryption
 
 ## Phase 9: Project Quality
