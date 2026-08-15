@@ -168,6 +168,73 @@ func TestIdentityCommandRejectsPositionals(t *testing.T) {
 	}
 }
 
+func TestPairCodeCommandPrintsVerificationCode(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	var identityOut bytes.Buffer
+	err := run(context.Background(), []string{"identity", "--path", repoRoot, "--name", "test-mac"}, &identityOut)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	identity, err := deviceidentity.Load(deviceidentity.Path(repoRoot))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err = run(context.Background(), []string{"pair-code", "--path", repoRoot, "--peer-fingerprint", testFingerprint}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"Pair verification code: ",
+		"Local fingerprint: " + identity.Fingerprint,
+		"Peer fingerprint: " + testFingerprint,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("pair-code output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestPairCodeCommandRequiresIdentity(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	var stdout bytes.Buffer
+
+	err := run(context.Background(), []string{"pair-code", "--path", repoRoot, "--peer-fingerprint", testFingerprint}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error without identity")
+	}
+	if !strings.Contains(err.Error(), "device identity missing") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestPairCodeCommandRequiresPeerFingerprint(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	var stdout bytes.Buffer
+
+	err := run(context.Background(), []string{"pair-code", "--path", repoRoot}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error without peer fingerprint")
+	}
+	if err.Error() != "pair-code requires --peer-fingerprint" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestPairCodeCommandRejectsPositionals(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"pair-code", "extra"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error with positional argument")
+	}
+	if err.Error() != "pair-code does not accept positional arguments" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestTrustCommandAddsListsAndRemovesDevice(t *testing.T) {
 	repoRoot, _ := initGitRepo(t)
 

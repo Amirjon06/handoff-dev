@@ -80,7 +80,7 @@ Goal: make the network flow usable and trustworthy.
 - `relay devices`
 - mDNS discovery
 - local Ed25519 device identity
-- verification codes
+- verification codes with `relay pair-code`
 - trusted device storage with `relay trust`
 - TLS encryption
 

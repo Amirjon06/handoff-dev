@@ -29,6 +29,7 @@ The Go agent owns:
 - session serialization
 - local state file reads and writes
 - local device identity
+- pair verification codes
 - trusted-device fingerprint storage
 - HTTP networking
 - restore orchestration
@@ -61,4 +62,4 @@ capture workspace state
     -> validate and apply restore state
 ```
 
-Device discovery, pairing, encryption, and automatic browser restore are intentionally outside the current boundary.
+Device discovery, encrypted transport, and automatic browser restore are intentionally outside the current boundary. Pair verification codes and trusted-device storage are present as groundwork for that later transport layer.

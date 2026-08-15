@@ -18,6 +18,7 @@ import (
 	"github.com/Amirjon06/handoff-dev/internal/deviceidentity"
 	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
+	"github.com/Amirjon06/handoff-dev/internal/paircode"
 	"github.com/Amirjon06/handoff-dev/internal/session"
 	"github.com/Amirjon06/handoff-dev/internal/terminalstate"
 	"github.com/Amirjon06/handoff-dev/internal/transport"
@@ -63,6 +64,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runBrowser(ctx, args[1:], stdout)
 	case "identity":
 		return runIdentity(ctx, args[1:], stdout)
+	case "pair-code":
+		return runPairCode(ctx, args[1:], stdout)
 	case "trust":
 		return runTrust(ctx, args[1:], stdout)
 	case "version":
@@ -74,6 +77,44 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runPairCode(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("pair-code", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	path := fs.String("path", ".", "workspace path")
+	peerFingerprint := fs.String("peer-fingerprint", "", "peer device fingerprint")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("pair-code does not accept positional arguments")
+	}
+	if strings.TrimSpace(*peerFingerprint) == "" {
+		return fmt.Errorf("pair-code requires --peer-fingerprint")
+	}
+
+	root, err := gitstate.Root(ctx, *path)
+	if err != nil {
+		return fmt.Errorf("find workspace root: %w", err)
+	}
+	identity, err := deviceidentity.Load(deviceidentity.Path(root))
+	if os.IsNotExist(err) {
+		return fmt.Errorf("device identity missing; run relay identity --path %s first", root)
+	}
+	if err != nil {
+		return err
+	}
+	code, err := paircode.Code(identity.Fingerprint, *peerFingerprint)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(stdout, "Pair verification code: %s\n", code)
+	fmt.Fprintf(stdout, "Local fingerprint: %s\n", identity.Fingerprint)
+	fmt.Fprintf(stdout, "Peer fingerprint: %s\n", strings.ToLower(strings.TrimSpace(*peerFingerprint)))
+	return nil
 }
 
 func runTrust(ctx context.Context, args []string, stdout io.Writer) error {
@@ -1015,6 +1056,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  relay terminal [--path PATH] [--cwd DIR]")
 	fmt.Fprintln(w, "  relay browser [--path PATH] --url URL [--url URL...]")
 	fmt.Fprintln(w, "  relay identity [--path PATH] [--name NAME]")
+	fmt.Fprintln(w, "  relay pair-code --peer-fingerprint FINGERPRINT [--path PATH]")
 	fmt.Fprintln(w, "  relay trust add --name NAME --fingerprint FINGERPRINT [--path PATH]")
 	fmt.Fprintln(w, "  relay trust list [--path PATH]")
 	fmt.Fprintln(w, "  relay trust remove --fingerprint FINGERPRINT [--path PATH]")
