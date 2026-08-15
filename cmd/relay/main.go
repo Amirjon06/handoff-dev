@@ -51,6 +51,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runListen(ctx, args[1:], stdout)
 	case "inbox":
 		return runInbox(ctx, args[1:], stdout)
+	case "doctor":
+		return runDoctor(ctx, args[1:], stdout)
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return nil
@@ -60,6 +62,53 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runDoctor(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	path := fs.String("path", ".", "project path to inspect")
+	inbox := fs.String("inbox", filepath.Join(".staterelay", "inbox"), "directory for received sessions")
+	target := fs.String("to", "", "optional HTTP listener to check")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("doctor does not accept positional arguments")
+	}
+
+	state, err := gitstate.Capture(ctx, *path)
+	if err != nil {
+		return fmt.Errorf("check repository: %w", err)
+	}
+	entries, err := transport.FileInbox{Dir: *inbox}.List(ctx)
+	if err != nil {
+		return fmt.Errorf("check inbox: %w", err)
+	}
+
+	fmt.Fprintln(stdout, "StateRelay doctor")
+	fmt.Fprintln(stdout, "Repository: ok")
+	fmt.Fprintf(stdout, "  root: %s\n", state.Root)
+	fmt.Fprintf(stdout, "  branch: %s\n", state.Branch)
+	fmt.Fprintf(stdout, "  commit: %s\n", shortHash(state.Commit))
+	fmt.Fprintf(stdout, "  dirty: %t\n", state.Dirty)
+	fmt.Fprintln(stdout, "Inbox: ok")
+	fmt.Fprintf(stdout, "  path: %s\n", *inbox)
+	fmt.Fprintf(stdout, "  sessions: %d\n", len(entries))
+
+	if *target == "" {
+		fmt.Fprintln(stdout, "Listener: skipped")
+		return nil
+	}
+	health, err := pingListener(ctx, *target)
+	if err != nil {
+		return fmt.Errorf("check listener: %w", err)
+	}
+	fmt.Fprintln(stdout, "Listener: ok")
+	fmt.Fprintf(stdout, "  target: %s\n", *target)
+	fmt.Fprintf(stdout, "  service: %s\n", health.Service)
+	return nil
 }
 
 func runPing(ctx context.Context, args []string, stdout io.Writer) error {
@@ -574,6 +623,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  relay restore [--path PATH] [--clone-dir DIR] [--inbox DIR] [--apply] [--dry-run] SESSION_FILE|latest")
 	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR]")
 	fmt.Fprintln(w, "  relay inbox [--inbox DIR]")
+	fmt.Fprintln(w, "  relay doctor [--path PATH] [--inbox DIR] [--to URL]")
 	fmt.Fprintln(w, "  relay ping --to URL")
 	fmt.Fprintln(w, "  relay send --to URL SESSION_FILE")
 	fmt.Fprintln(w, "  relay version")

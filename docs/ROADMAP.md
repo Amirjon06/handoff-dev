@@ -53,6 +53,7 @@ Goal: move one session between two machines.
 - inbox listing for received sessions
 - destination restore from the latest received session
 - clone missing repositories during restore
+- setup diagnostics with `relay doctor`
 
 ## Phase 6: Uncommitted Work
 

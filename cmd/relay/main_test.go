@@ -38,6 +38,76 @@ func TestUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestDoctorPrintsRepositoryAndInboxStatus(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	verifiedRoot := strings.TrimSpace(runGit(t, repoRoot, "rev-parse", "--show-toplevel"))
+	inbox := t.TempDir()
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"doctor", "--path", repoRoot, "--inbox", inbox}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"StateRelay doctor",
+		"Repository: ok",
+		"  root: " + verifiedRoot,
+		"  branch: main",
+		"  commit: " + shortHash(commit),
+		"  dirty: false",
+		"Inbox: ok",
+		"  path: " + inbox,
+		"  sessions: 0",
+		"Listener: skipped",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestDoctorChecksListener(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	oldPingListener := pingListener
+	t.Cleanup(func() { pingListener = oldPingListener })
+	pingListener = func(ctx context.Context, target string) (transport.Health, error) {
+		if target != "http://127.0.0.1:8765" {
+			t.Fatalf("target = %q", target)
+		}
+		return transport.Health{Status: "ok", Service: "staterelay"}, nil
+	}
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"doctor", "--path", repoRoot, "--to", "http://127.0.0.1:8765"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"Listener: ok",
+		"  target: http://127.0.0.1:8765",
+		"  service: staterelay",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestDoctorRejectsPositionals(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"doctor", "extra"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error with positional argument")
+	}
+	if err.Error() != "doctor does not accept positional arguments" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestPingCommandChecksListener(t *testing.T) {
 	oldPingListener := pingListener
 	t.Cleanup(func() { pingListener = oldPingListener })
