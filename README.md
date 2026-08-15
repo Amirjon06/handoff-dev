@@ -74,6 +74,8 @@ go test ./...
 go run ./cmd/relay version
 ```
 
+GitHub Actions runs the Go test suite and VS Code extension checks on each push to `main` and on pull requests.
+
 The VS Code extension is developed separately:
 
 ```bash
@@ -176,7 +178,7 @@ Planned capture example:
 
 ## Development Status
 
-This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, a VS Code extension that captures and restores editor state, and an early HTTP path for sending, listing, and restoring received session files.
+This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, a VS Code extension that captures and restores editor state, an early HTTP path for sending, listing, and restoring received session files, and CI checks for both the Go code and extension.
 
 ## Roadmap
 
@@ -199,7 +201,7 @@ This repository is being built step by step. The current version has a Go CLI fo
 17. Support Linux alongside macOS and Windows.
 18. Run the Go agent as a background service.
 19. Add a simple desktop UI that talks to the same Go backend.
-20. Add cross-platform tests, CI, and installers.
+20. Add cross-platform release builds and installers.
 
 ## Planned Repository Layout
 

@@ -81,7 +81,16 @@ Goal: make the network flow usable and trustworthy.
 - trusted device storage
 - TLS encryption
 
-## Phase 9: Broader Context
+## Phase 9: Project Quality
+
+Goal: keep the project easy to verify and maintain.
+
+- GitHub Actions for Go tests
+- GitHub Actions for VS Code extension checks
+- release build scripts
+- installer packaging
+
+## Phase 10: Broader Context
 
 Goal: restore more of the user's working environment.
 
