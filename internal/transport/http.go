@@ -19,7 +19,10 @@ import (
 	"github.com/Amirjon06/handoff-dev/internal/session"
 )
 
-const SessionsPath = "/sessions"
+const (
+	HealthPath   = "/health"
+	SessionsPath = "/sessions"
+)
 
 var defaultHTTPClient = &http.Client{Timeout: 15 * time.Second}
 
@@ -28,12 +31,48 @@ type Receipt struct {
 	Message string `json:"message,omitempty"`
 }
 
+type Health struct {
+	Status  string `json:"status"`
+	Service string `json:"service"`
+}
+
 type Client struct {
 	HTTPClient *http.Client
 }
 
+func (c Client) Ping(ctx context.Context, target string) (Health, error) {
+	endpoint, err := targetEndpoint(target, HealthPath)
+	if err != nil {
+		return Health{}, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return Health{}, err
+	}
+
+	resp, err := c.client().Do(req)
+	if err != nil {
+		return Health{}, fmt.Errorf("ping listener: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return Health{}, fmt.Errorf("ping listener: server returned %s", resp.Status)
+	}
+
+	var health Health
+	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		return Health{}, fmt.Errorf("read health response: %w", err)
+	}
+	if health.Status != "ok" {
+		return Health{}, fmt.Errorf("listener status %q", health.Status)
+	}
+	return health, nil
+}
+
 func (c Client) Send(ctx context.Context, target string, captured session.Session) (Receipt, error) {
-	endpoint, err := sessionEndpoint(target)
+	endpoint, err := targetEndpoint(target, SessionsPath)
 	if err != nil {
 		return Receipt{}, err
 	}
@@ -73,6 +112,16 @@ func (c Client) Send(ctx context.Context, target string, captured session.Sessio
 
 func Handler(inbox FileInbox) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc(HealthPath, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(Health{Status: "ok", Service: "staterelay"})
+	})
 	mux.HandleFunc(SessionsPath, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
@@ -220,7 +269,7 @@ func (c Client) client() *http.Client {
 	return defaultHTTPClient
 }
 
-func sessionEndpoint(target string) (string, error) {
+func targetEndpoint(target string, defaultPath string) (string, error) {
 	parsed, err := url.Parse(target)
 	if err != nil {
 		return "", fmt.Errorf("parse target: %w", err)
@@ -232,7 +281,7 @@ func sessionEndpoint(target string) (string, error) {
 		return "", fmt.Errorf("target host is required")
 	}
 	if parsed.Path == "" || parsed.Path == "/" {
-		parsed.Path = SessionsPath
+		parsed.Path = defaultPath
 	}
 	return parsed.String(), nil
 }

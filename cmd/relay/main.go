@@ -23,6 +23,7 @@ import (
 const version = "0.1.0-dev"
 
 var sendSession = transport.Client{}.Send
+var pingListener = transport.Client{}.Ping
 
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout); err != nil {
@@ -44,6 +45,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runRestore(ctx, args[1:], stdout)
 	case "send":
 		return runSend(ctx, args[1:], stdout)
+	case "ping":
+		return runPing(ctx, args[1:], stdout)
 	case "listen":
 		return runListen(ctx, args[1:], stdout)
 	case "inbox":
@@ -57,6 +60,32 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runPing(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("ping", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	target := fs.String("to", "", "HTTP listener to check")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *target == "" {
+		return fmt.Errorf("ping requires --to")
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("ping does not accept positional arguments")
+	}
+
+	health, err := pingListener(ctx, *target)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(stdout, "Listener: %s\n", *target)
+	fmt.Fprintf(stdout, "Status: %s\n", health.Status)
+	fmt.Fprintf(stdout, "Service: %s\n", health.Service)
+	return nil
 }
 
 func runSend(ctx context.Context, args []string, stdout io.Writer) error {
@@ -498,6 +527,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  relay restore [--path PATH] [--inbox DIR] [--apply] [--dry-run] SESSION_FILE|latest")
 	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR]")
 	fmt.Fprintln(w, "  relay inbox [--inbox DIR]")
+	fmt.Fprintln(w, "  relay ping --to URL")
 	fmt.Fprintln(w, "  relay send --to URL SESSION_FILE")
 	fmt.Fprintln(w, "  relay version")
 }

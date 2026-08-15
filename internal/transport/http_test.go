@@ -57,6 +57,37 @@ func TestClientSendsSession(t *testing.T) {
 	}
 }
 
+func TestClientPingsListener(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != HealthPath {
+				t.Fatalf("path = %q, want %q", r.URL.Path, HealthPath)
+			}
+			if r.Method != http.MethodGet {
+				t.Fatalf("method = %q, want GET", r.Method)
+			}
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"status":"ok","service":"staterelay"}`)),
+			}, nil
+		}),
+	}
+
+	health, err := Client{HTTPClient: client}.Ping(context.Background(), "http://127.0.0.1:8765")
+	if err != nil {
+		t.Fatalf("Ping returned error: %v", err)
+	}
+	if health.Status != "ok" {
+		t.Fatalf("status = %q", health.Status)
+	}
+	if health.Service != "staterelay" {
+		t.Fatalf("service = %q", health.Service)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -100,6 +131,22 @@ func TestHandlerStoresValidSession(t *testing.T) {
 	}
 	if !strings.HasSuffix(entries[0].Name(), ".json") {
 		t.Fatalf("stored file = %q", entries[0].Name())
+	}
+}
+
+func TestHandlerServesHealth(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, HealthPath, nil)
+	rec := httptest.NewRecorder()
+	Handler(FileInbox{Dir: t.TempDir()}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), `"status":"ok"`) {
+		t.Fatalf("body = %q", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"service":"staterelay"`) {
+		t.Fatalf("body = %q", rec.Body.String())
 	}
 }
 

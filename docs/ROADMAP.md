@@ -47,6 +47,7 @@ Goal: prove StateRelay can rebuild a workspace on one machine.
 Goal: move one session between two machines.
 
 - `relay listen`
+- `relay ping --to URL`
 - `relay send --to URL`
 - HTTP transport with validated session storage
 - inbox listing for received sessions

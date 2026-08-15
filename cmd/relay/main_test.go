@@ -38,6 +38,45 @@ func TestUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestPingCommandChecksListener(t *testing.T) {
+	oldPingListener := pingListener
+	t.Cleanup(func() { pingListener = oldPingListener })
+	pingListener = func(ctx context.Context, target string) (transport.Health, error) {
+		if target != "http://127.0.0.1:8765" {
+			t.Fatalf("target = %q", target)
+		}
+		return transport.Health{Status: "ok", Service: "staterelay"}, nil
+	}
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"ping", "--to", "http://127.0.0.1:8765"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"Listener: http://127.0.0.1:8765",
+		"Status: ok",
+		"Service: staterelay",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestPingRequiresTarget(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"ping"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error without target")
+	}
+	if err.Error() != "ping requires --to" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestSendCommandPostsSession(t *testing.T) {
 	path := writeTestSession(t, t.TempDir(), "faaf307bf4fa86c316586804bf88f3096511aabd")
 	var received session.Session
