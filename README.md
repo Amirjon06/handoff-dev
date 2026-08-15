@@ -74,6 +74,14 @@ go test ./...
 go run ./cmd/relay version
 ```
 
+The VS Code extension is developed separately:
+
+```bash
+cd extensions/vscode
+npm install
+npm run compile
+```
+
 Later releases should provide easier installation through package managers or install scripts.
 
 ## Usage
@@ -92,6 +100,14 @@ go run ./cmd/relay restore --apply session.json
 ```
 
 Current capture output includes the Git repository root, repository name, origin remote, active branch, current commit, dirty working tree status, and captured file snapshot details. Captured text snapshots include SHA-256 hashes for integrity checks, and restore plans show a short hash prefix for captured files. Use `--json` to produce the first StateRelay session artifact. Restore rejects malformed or unsafe session files before verifying that the target checkout branch and commit match. Use `restore --path` to validate a different checkout. Use `restore --apply --dry-run` to validate an apply without writing files. Use `restore --apply` to write captured text snapshots into a clean working tree; dirty destinations are rejected with the blocking file list, content hashes are checked before files are written, and uncaptured files are reported as skipped.
+
+Current VS Code extension command:
+
+```text
+StateRelay: Capture Editor State
+```
+
+The command writes `.staterelay/editor-state.json` with the workspace folder, active file, open text documents, dirty flags, and visible editor selections.
 
 Planned commands:
 
@@ -146,7 +162,7 @@ Planned capture example:
 
 ## Development Status
 
-This repository is being built step by step. The early commits intentionally start with the problem statement, architecture, and a minimal Go CLI before adding capture, restore, networking, and editor integration.
+This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, plus an early VS Code extension that captures editor state into a local JSON file.
 
 ## Roadmap
 
@@ -177,7 +193,7 @@ This repository is being built step by step. The early commits intentionally sta
 cmd/relay/          CLI entry point
 internal/gitstate/  Git capture logic
 internal/session/   Session schema and JSON helpers
-extensions/vscode/  Future VS Code extension
+extensions/vscode/  VS Code extension
 extensions/browser/ Future browser extension
 docs/               Architecture and roadmap notes
 ```

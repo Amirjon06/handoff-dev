@@ -1,0 +1,36 @@
+{
+  "name": "staterelay-vscode",
+  "displayName": "StateRelay",
+  "description": "Captures VS Code editor state for StateRelay sessions.",
+  "version": "0.1.0",
+  "publisher": "staterelay",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:staterelay.captureEditorState"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "staterelay.captureEditorState",
+        "title": "StateRelay: Capture Editor State"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "check": "tsc -p ./ --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/vscode": "1.92.0",
+    "typescript": "^5.5.4"
+  }
+}

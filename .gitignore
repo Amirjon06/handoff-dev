@@ -1,12 +1,14 @@
 .DS_Store
+.cache/
+.staterelay/
 /relay
 dist/
 build/
 coverage/
 *.test
 *.out
-.cache/
 session.json
 staterelay.db
 node_modules/
+out/
 .vscode-test/
