@@ -32,6 +32,13 @@ func TestCertificateBuildsEd25519Certificate(t *testing.T) {
 	if len(parsed.ExtKeyUsage) != 2 {
 		t.Fatalf("extended key usage count = %d", len(parsed.ExtKeyUsage))
 	}
+	fingerprint, err := Fingerprint(parsed)
+	if err != nil {
+		t.Fatalf("Fingerprint returned error: %v", err)
+	}
+	if fingerprint != identity.Fingerprint {
+		t.Fatalf("fingerprint = %q, want %q", fingerprint, identity.Fingerprint)
+	}
 }
 
 func TestCertificateRejectsInvalidIdentity(t *testing.T) {

@@ -54,6 +54,14 @@ func Certificate(identity deviceidentity.Identity, now time.Time) (tls.Certifica
 	}, nil
 }
 
+func Fingerprint(cert *x509.Certificate) (string, error) {
+	publicKey, ok := cert.PublicKey.(ed25519.PublicKey)
+	if !ok {
+		return "", fmt.Errorf("certificate public key is %T, want ed25519.PublicKey", cert.PublicKey)
+	}
+	return deviceidentity.Fingerprint(publicKey), nil
+}
+
 func serialNumber(fingerprint string) *big.Int {
 	sum := sha256.Sum256([]byte(fingerprint))
 	return new(big.Int).SetBytes(sum[:16])

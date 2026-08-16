@@ -42,11 +42,19 @@ type Client struct {
 }
 
 func InsecureTLSClient() Client {
+	return TLSClient(nil, true)
+}
+
+func TLSClient(certificates []tls.Certificate, insecureSkipVerify bool) Client {
 	return Client{
 		HTTPClient: &http.Client{
 			Timeout: defaultHTTPClient.Timeout,
 			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				TLSClientConfig: &tls.Config{
+					Certificates:       certificates,
+					InsecureSkipVerify: insecureSkipVerify,
+					MinVersion:         tls.VersionTLS12,
+				},
 			},
 		},
 	}

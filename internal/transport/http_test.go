@@ -93,8 +93,12 @@ func TestInsecureTLSClientUsesCustomHTTPClient(t *testing.T) {
 	if client.HTTPClient == nil {
 		t.Fatal("HTTPClient = nil")
 	}
-	if client.HTTPClient.Transport == nil {
-		t.Fatal("Transport = nil")
+	transport, ok := client.HTTPClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport = %T", client.HTTPClient.Transport)
+	}
+	if transport.TLSClientConfig == nil || !transport.TLSClientConfig.InsecureSkipVerify {
+		t.Fatalf("TLS config = %#v", transport.TLSClientConfig)
 	}
 }
 

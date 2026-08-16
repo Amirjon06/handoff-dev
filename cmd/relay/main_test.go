@@ -18,6 +18,7 @@ import (
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/session"
 	"github.com/Amirjon06/handoff-dev/internal/terminalstate"
+	"github.com/Amirjon06/handoff-dev/internal/tlsidentity"
 	"github.com/Amirjon06/handoff-dev/internal/transport"
 	"github.com/Amirjon06/handoff-dev/internal/truststore"
 )
@@ -124,6 +125,17 @@ func TestListenAdvertiseRequiresIdentity(t *testing.T) {
 	}
 }
 
+func TestListenRequireClientCertRequiresTLS(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"listen", "--require-client-cert"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error without TLS")
+	}
+	if err.Error() != "listen --require-client-cert requires --tls" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestNewAdvertiseOptionsUsesHTTPSScheme(t *testing.T) {
 	identity, err := deviceidentity.New("test-mac", time.Now(), bytes.NewReader(bytes.Repeat([]byte{3}, 32)))
 	if err != nil {
@@ -139,6 +151,65 @@ func TestNewAdvertiseOptionsUsesHTTPSScheme(t *testing.T) {
 	}
 	if options.Fingerprint != identity.Fingerprint {
 		t.Fatalf("fingerprint = %q, want %q", options.Fingerprint, identity.Fingerprint)
+	}
+}
+
+func TestNewListenerTLSConfigAcceptsTrustedClientCertificate(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	serverIdentity, err := deviceidentity.New("server", time.Now(), bytes.NewReader(bytes.Repeat([]byte{3}, 32)))
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	clientIdentity, err := deviceidentity.New("client", time.Now(), bytes.NewReader(bytes.Repeat([]byte{4}, 32)))
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	store, _, err := truststore.Add(truststore.Store{}, "client", clientIdentity.Fingerprint, time.Now())
+	if err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+	if err := truststore.Save(truststore.Path(repoRoot), store); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+
+	config, err := newListenerTLSConfig(serverIdentity, repoRoot, true)
+	if err != nil {
+		t.Fatalf("newListenerTLSConfig returned error: %v", err)
+	}
+	clientCert, err := tlsidentity.Certificate(clientIdentity, time.Now())
+	if err != nil {
+		t.Fatalf("Certificate returned error: %v", err)
+	}
+	if err := config.VerifyPeerCertificate([][]byte{clientCert.Certificate[0]}, nil); err != nil {
+		t.Fatalf("VerifyPeerCertificate returned error: %v", err)
+	}
+}
+
+func TestNewListenerTLSConfigRejectsUntrustedClientCertificate(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	serverIdentity, err := deviceidentity.New("server", time.Now(), bytes.NewReader(bytes.Repeat([]byte{3}, 32)))
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	clientIdentity, err := deviceidentity.New("client", time.Now(), bytes.NewReader(bytes.Repeat([]byte{4}, 32)))
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	config, err := newListenerTLSConfig(serverIdentity, repoRoot, true)
+	if err != nil {
+		t.Fatalf("newListenerTLSConfig returned error: %v", err)
+	}
+	clientCert, err := tlsidentity.Certificate(clientIdentity, time.Now())
+	if err != nil {
+		t.Fatalf("Certificate returned error: %v", err)
+	}
+	err = config.VerifyPeerCertificate([][]byte{clientCert.Certificate[0]}, nil)
+	if err == nil {
+		t.Fatal("VerifyPeerCertificate returned nil error for untrusted client")
+	}
+	if !strings.Contains(err.Error(), "is not trusted") {
+		t.Fatalf("error = %q", err.Error())
 	}
 }
 

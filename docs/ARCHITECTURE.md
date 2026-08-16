@@ -35,6 +35,7 @@ The Go agent owns:
 - trusted restore enforcement
 - mDNS device discovery
 - HTTPS listener mode
+- mutual TLS client certificate enforcement
 - HTTP networking
 - restore orchestration
 
