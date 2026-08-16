@@ -103,7 +103,7 @@ Goal: restore more of the user's working environment.
 
 - basic terminal working-directory capture and restore
 - basic browser tab URL capture and restore
-- automatic browser tab reopening
+- browser tab reopening through the system browser
 - richer terminal session restore
 - richer project history
 - background service

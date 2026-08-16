@@ -38,6 +38,7 @@ var sendSession = transport.Client{}.Send
 var pingListener = transport.Client{}.Ping
 var advertiseDevice = discovery.Advertise
 var discoverDevices = discovery.Lookup
+var openBrowserURL = browserstate.OpenURL
 
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout); err != nil {
@@ -316,6 +317,8 @@ func runBrowser(ctx context.Context, args []string, stdout io.Writer) error {
 	fs.SetOutput(io.Discard)
 
 	path := fs.String("path", ".", "workspace path")
+	restore := fs.Bool("restore", false, "restore recorded browser URLs")
+	openTabs := fs.Bool("open", false, "open restored browser URLs")
 	var urls stringListFlag
 	fs.Var(&urls, "url", "browser URL to record; repeat for multiple tabs")
 	if err := fs.Parse(args); err != nil {
@@ -324,10 +327,38 @@ func runBrowser(ctx context.Context, args []string, stdout io.Writer) error {
 	if fs.NArg() != 0 {
 		return fmt.Errorf("browser does not accept positional arguments")
 	}
+	if *openTabs && !*restore {
+		return fmt.Errorf("browser --open requires --restore")
+	}
+	if *restore && len(urls) > 0 {
+		return fmt.Errorf("browser --restore cannot be combined with --url")
+	}
 
 	root, err := gitstate.Root(ctx, *path)
 	if err != nil {
 		return fmt.Errorf("find workspace root: %w", err)
+	}
+	if *restore {
+		state, err := browserstate.ReadWorkspace(root)
+		if err != nil {
+			return err
+		}
+		if state == nil {
+			return fmt.Errorf("browser state missing; run relay browser --url URL first")
+		}
+		fmt.Fprintf(stdout, "Browser tabs: %d\n", len(state.Tabs))
+		for _, tab := range state.Tabs {
+			fmt.Fprintf(stdout, "URL: %s\n", tab.URL)
+			if *openTabs {
+				if err := openBrowserURL(ctx, tab.URL); err != nil {
+					return err
+				}
+			}
+		}
+		if *openTabs {
+			fmt.Fprintf(stdout, "Opened browser tabs: %d\n", len(state.Tabs))
+		}
+		return nil
 	}
 	state, err := browserstate.Capture(urls, time.Now())
 	if err != nil {
@@ -1442,6 +1473,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  relay doctor [--path PATH] [--inbox DIR] [--history DB] [--to URL]")
 	fmt.Fprintln(w, "  relay terminal [--path PATH] [--cwd DIR]")
 	fmt.Fprintln(w, "  relay browser [--path PATH] --url URL [--url URL...]")
+	fmt.Fprintln(w, "  relay browser [--path PATH] --restore [--open]")
 	fmt.Fprintln(w, "  relay identity [--path PATH] [--name NAME]")
 	fmt.Fprintln(w, "  relay pair-code --peer-fingerprint FINGERPRINT [--path PATH]")
 	fmt.Fprintln(w, "  relay trust add --name NAME --fingerprint FINGERPRINT [--path PATH]")

@@ -48,13 +48,13 @@ The VS Code extension owns:
 - workspace folder
 - later, editor restore commands
 
-The browser extension owns:
+Browser support owns:
 
-- future automatic tab capture
-- future tab reopening
+- manual tab URL capture
+- system browser tab reopening
 - future window/tab grouping metadata
 
-The current Go CLI can record browser tab URLs manually with `relay browser --url`.
+The current Go CLI records browser tab URLs with `relay browser --url` and reopens them with `relay browser --restore --open`.
 
 ## MVP Boundary
 

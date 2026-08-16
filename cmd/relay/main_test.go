@@ -356,6 +356,97 @@ func TestBrowserCommandWritesWorkspaceState(t *testing.T) {
 	}
 }
 
+func TestBrowserCommandRestoresRecordedURLs(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	state := browserstate.State{
+		SchemaVersion: browserstate.SchemaVersion,
+		CapturedAt:    "2026-08-16T18:00:00Z",
+		Tabs: []browserstate.Tab{
+			{URL: "https://go.dev/doc/"},
+			{URL: "http://localhost:8765/health"},
+		},
+	}
+	if err := browserstate.WriteWorkspace(repoRoot, &state); err != nil {
+		t.Fatalf("WriteWorkspace returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"browser", "--path", repoRoot, "--restore"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	got := stdout.String()
+	for _, want := range []string{
+		"Browser tabs: 2",
+		"URL: https://go.dev/doc/",
+		"URL: http://localhost:8765/health",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("browser restore output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestBrowserCommandOpensRecordedURLs(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	state := browserstate.State{
+		SchemaVersion: browserstate.SchemaVersion,
+		CapturedAt:    "2026-08-16T18:00:00Z",
+		Tabs: []browserstate.Tab{
+			{URL: "https://go.dev/doc/"},
+			{URL: "http://localhost:8765/health"},
+		},
+	}
+	if err := browserstate.WriteWorkspace(repoRoot, &state); err != nil {
+		t.Fatalf("WriteWorkspace returned error: %v", err)
+	}
+
+	var opened []string
+	oldOpenBrowserURL := openBrowserURL
+	t.Cleanup(func() { openBrowserURL = oldOpenBrowserURL })
+	openBrowserURL = func(_ context.Context, rawURL string) error {
+		opened = append(opened, rawURL)
+		return nil
+	}
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"browser", "--path", repoRoot, "--restore", "--open"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	if len(opened) != 2 {
+		t.Fatalf("opened count = %d, want 2", len(opened))
+	}
+	if opened[0] != "https://go.dev/doc/" || opened[1] != "http://localhost:8765/health" {
+		t.Fatalf("opened URLs = %#v", opened)
+	}
+	if !strings.Contains(stdout.String(), "Opened browser tabs: 2") {
+		t.Fatalf("stdout missing opened count:\n%s", stdout.String())
+	}
+}
+
+func TestBrowserCommandRejectsOpenWithoutRestore(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"browser", "--open"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error with --open without --restore")
+	}
+	if err.Error() != "browser --open requires --restore" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestBrowserCommandRejectsRestoreWithURLs(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"browser", "--restore", "--url", "https://go.dev/doc/"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error with --restore and --url")
+	}
+	if err.Error() != "browser --restore cannot be combined with --url" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestBrowserCommandRejectsPositionals(t *testing.T) {
 	var stdout bytes.Buffer
 	err := run(context.Background(), []string{"browser", "extra"}, &stdout)
