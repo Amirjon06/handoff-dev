@@ -93,9 +93,9 @@ Goal: keep the project easy to verify and maintain.
 
 - GitHub Actions for Go tests
 - GitHub Actions for VS Code extension checks
-- release build scripts
+- packaged release archives
 - SQLite-backed received-session history
-- installer packaging
+- install scripts
 
 ## Phase 10: Broader Context
 

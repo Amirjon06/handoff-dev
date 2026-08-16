@@ -82,7 +82,7 @@ Planned areas include trusted-device pairing polish, richer project history, a b
 
 ## Installation
 
-StateRelay is in early development and is not packaged yet.
+StateRelay is in early development. Release scripts build packaged CLI archives for macOS, Linux, and Windows.
 
 For now, build it from source:
 
@@ -93,7 +93,7 @@ go test ./...
 go run ./cmd/relay version
 ```
 
-To build release binaries for macOS, Linux, and Windows:
+To build release archives:
 
 ```bash
 ./scripts/build-release.sh
@@ -105,7 +105,9 @@ On Windows PowerShell:
 .\scripts\build-release.ps1
 ```
 
-The binaries are written to `dist/`. GitHub Actions runs the Go test suite, a CLI build, and VS Code extension checks on each push to `main` and on pull requests.
+The release artifacts are written to `dist/`. Each archive includes the `relay` binary, README, license, version file, and a small install script. Checksums are written to `dist/checksums.txt`. See [docs/INSTALL.md](docs/INSTALL.md) for installation steps.
+
+GitHub Actions runs the Go test suite, a CLI build, and VS Code extension checks on each push to `main` and on pull requests.
 
 The VS Code extension is developed separately:
 
@@ -115,7 +117,7 @@ npm install
 npm run compile
 ```
 
-Later releases should provide easier installation through package managers or install scripts.
+Later releases can add package-manager distribution.
 
 ## Usage
 
@@ -245,7 +247,7 @@ Planned capture example:
 
 ## Development Status
 
-This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, signed session files, terminal working-directory capture and restore commands, browser tab URL capture and reopening, local device identity generation, pair verification codes, trusted-device fingerprint storage, mDNS local device discovery, HTTPS listener support, mutual TLS client certificate enforcement, SQLite-backed received-session history, a VS Code extension that captures and restores editor state, an early network path for sending, listing, and restoring received session files, CI checks for both the Go code and extension, and release build scripts for common desktop platforms.
+This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, signed session files, terminal working-directory capture and restore commands, browser tab URL capture and reopening, local device identity generation, pair verification codes, trusted-device fingerprint storage, mDNS local device discovery, HTTPS listener support, mutual TLS client certificate enforcement, SQLite-backed received-session history, a VS Code extension that captures and restores editor state, an early network path for sending, listing, and restoring received session files, CI checks for both the Go code and extension, and packaged release archives for common desktop platforms.
 
 ## Roadmap
 
@@ -268,7 +270,7 @@ This repository is being built step by step. The current version has a Go CLI fo
 17. Support Linux alongside macOS and Windows.
 18. Run the Go agent as a background service.
 19. Add a simple desktop UI that talks to the same Go backend.
-20. Add installer packaging.
+20. Add package-manager distribution.
 
 ## Planned Repository Layout
 
