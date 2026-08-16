@@ -88,6 +88,16 @@ func TestClientPingsListener(t *testing.T) {
 	}
 }
 
+func TestInsecureTLSClientUsesCustomHTTPClient(t *testing.T) {
+	client := InsecureTLSClient()
+	if client.HTTPClient == nil {
+		t.Fatal("HTTPClient = nil")
+	}
+	if client.HTTPClient.Transport == nil {
+		t.Fatal("Transport = nil")
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {

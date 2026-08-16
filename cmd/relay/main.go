@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -24,6 +25,7 @@ import (
 	"github.com/Amirjon06/handoff-dev/internal/paircode"
 	"github.com/Amirjon06/handoff-dev/internal/session"
 	"github.com/Amirjon06/handoff-dev/internal/terminalstate"
+	"github.com/Amirjon06/handoff-dev/internal/tlsidentity"
 	"github.com/Amirjon06/handoff-dev/internal/transport"
 	"github.com/Amirjon06/handoff-dev/internal/truststore"
 )
@@ -433,7 +435,8 @@ func runPing(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("ping", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 
-	target := fs.String("to", "", "HTTP listener to check")
+	target := fs.String("to", "", "HTTP or HTTPS listener to check")
+	insecureTLS := fs.Bool("insecure-tls", false, "allow a self-signed TLS listener certificate")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -444,7 +447,11 @@ func runPing(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("ping does not accept positional arguments")
 	}
 
-	health, err := pingListener(ctx, *target)
+	ping := pingListener
+	if *insecureTLS {
+		ping = transport.InsecureTLSClient().Ping
+	}
+	health, err := ping(ctx, *target)
 	if err != nil {
 		return err
 	}
@@ -459,7 +466,8 @@ func runSend(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("send", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 
-	target := fs.String("to", "", "HTTP target to send the session to")
+	target := fs.String("to", "", "HTTP or HTTPS target to send the session to")
+	insecureTLS := fs.Bool("insecure-tls", false, "allow a self-signed TLS listener certificate")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -475,7 +483,11 @@ func runSend(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	receipt, err := sendSession(ctx, *target, captured)
+	send := sendSession
+	if *insecureTLS {
+		send = transport.InsecureTLSClient().Send
+	}
+	receipt, err := send(ctx, *target, captured)
 	if err != nil {
 		return err
 	}
@@ -494,6 +506,7 @@ func runListen(ctx context.Context, args []string, stdout io.Writer) error {
 	addr := fs.String("addr", "127.0.0.1:8765", "HTTP listen address")
 	inbox := fs.String("inbox", filepath.Join(".staterelay", "inbox"), "directory for received sessions")
 	advertise := fs.Bool("advertise", false, "publish this listener with mDNS")
+	tlsEnabled := fs.Bool("tls", false, "serve HTTPS with the local device identity")
 	path := fs.String("path", ".", "workspace path for device identity when advertising")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -501,12 +514,31 @@ func runListen(ctx context.Context, args []string, stdout io.Writer) error {
 	if fs.NArg() != 0 {
 		return fmt.Errorf("listen does not accept positional arguments")
 	}
+	var identity *deviceidentity.Identity
+	if *advertise || *tlsEnabled {
+		loaded, err := loadWorkspaceIdentity(ctx, *path)
+		if err != nil {
+			return err
+		}
+		identity = &loaded
+	}
 	var advertiseOptions discovery.AdvertiseOptions
 	if *advertise {
 		var err error
-		advertiseOptions, err = newAdvertiseOptions(ctx, *path, *addr)
+		advertiseOptions, err = newAdvertiseOptions(*identity, *addr, *tlsEnabled)
 		if err != nil {
 			return err
+		}
+	}
+	var tlsConfig *tls.Config
+	if *tlsEnabled {
+		cert, err := tlsidentity.Certificate(*identity, time.Now())
+		if err != nil {
+			return fmt.Errorf("create TLS certificate: %w", err)
+		}
+		tlsConfig = &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
 		}
 	}
 
@@ -514,6 +546,7 @@ func runListen(ctx context.Context, args []string, stdout io.Writer) error {
 		Addr:              *addr,
 		Handler:           transport.Handler(transport.FileInbox{Dir: *inbox}),
 		ReadHeaderTimeout: 5 * time.Second,
+		TLSConfig:         tlsConfig,
 	}
 	go func() {
 		<-ctx.Done()
@@ -522,7 +555,11 @@ func runListen(ctx context.Context, args []string, stdout io.Writer) error {
 		_ = server.Shutdown(shutdownCtx)
 	}()
 
-	fmt.Fprintf(stdout, "Listening on http://%s\n", *addr)
+	scheme := "http"
+	if *tlsEnabled {
+		scheme = "https"
+	}
+	fmt.Fprintf(stdout, "Listening on %s://%s\n", scheme, *addr)
 	fmt.Fprintf(stdout, "Inbox: %s\n", *inbox)
 	if *advertise {
 		go func() {
@@ -530,7 +567,13 @@ func runListen(ctx context.Context, args []string, stdout io.Writer) error {
 		}()
 		fmt.Fprintf(stdout, "Advertising as %s\n", advertiseOptions.Name)
 	}
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	var err error
+	if *tlsEnabled {
+		err = server.ListenAndServeTLS("", "")
+	} else {
+		err = server.ListenAndServe()
+	}
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
@@ -575,27 +618,36 @@ func runDevices(ctx context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
-func newAdvertiseOptions(ctx context.Context, path string, addr string) (discovery.AdvertiseOptions, error) {
+func loadWorkspaceIdentity(ctx context.Context, path string) (deviceidentity.Identity, error) {
 	root, err := gitstate.Root(ctx, path)
 	if err != nil {
-		return discovery.AdvertiseOptions{}, fmt.Errorf("find workspace root: %w", err)
+		return deviceidentity.Identity{}, fmt.Errorf("find workspace root: %w", err)
 	}
 	identity, err := deviceidentity.Load(deviceidentity.Path(root))
 	if os.IsNotExist(err) {
-		return discovery.AdvertiseOptions{}, fmt.Errorf("device identity missing; run relay identity --path %s first", root)
+		return deviceidentity.Identity{}, fmt.Errorf("device identity missing; run relay identity --path %s first", root)
 	}
 	if err != nil {
-		return discovery.AdvertiseOptions{}, err
+		return deviceidentity.Identity{}, err
 	}
+	return identity, nil
+}
+
+func newAdvertiseOptions(identity deviceidentity.Identity, addr string, tlsEnabled bool) (discovery.AdvertiseOptions, error) {
 	port, err := listenPort(addr)
 	if err != nil {
 		return discovery.AdvertiseOptions{}, err
+	}
+	scheme := "http"
+	if tlsEnabled {
+		scheme = "https"
 	}
 	return discovery.AdvertiseOptions{
 		Instance:    identity.Name,
 		Name:        identity.Name,
 		Fingerprint: identity.Fingerprint,
 		Version:     version,
+		Scheme:      scheme,
 		Port:        port,
 	}, nil
 }
@@ -1208,7 +1260,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  relay capture [--path PATH] [--json] [--out FILE]")
 	fmt.Fprintln(w, "  relay restore [--path PATH] [--clone-dir DIR] [--inbox DIR] [--apply] [--dry-run] [--conflict reject|keep-both] [--require-trusted] SESSION_FILE|latest")
-	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR] [--advertise] [--path PATH]")
+	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR] [--advertise] [--tls] [--path PATH]")
 	fmt.Fprintln(w, "  relay devices [--timeout DURATION]")
 	fmt.Fprintln(w, "  relay inbox [--inbox DIR]")
 	fmt.Fprintln(w, "  relay doctor [--path PATH] [--inbox DIR] [--to URL]")
@@ -1219,7 +1271,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  relay trust add --name NAME --fingerprint FINGERPRINT [--path PATH]")
 	fmt.Fprintln(w, "  relay trust list [--path PATH]")
 	fmt.Fprintln(w, "  relay trust remove --fingerprint FINGERPRINT [--path PATH]")
-	fmt.Fprintln(w, "  relay ping --to URL")
-	fmt.Fprintln(w, "  relay send --to URL SESSION_FILE")
+	fmt.Fprintln(w, "  relay ping --to URL [--insecure-tls]")
+	fmt.Fprintln(w, "  relay send --to URL [--insecure-tls] SESSION_FILE")
 	fmt.Fprintln(w, "  relay version")
 }

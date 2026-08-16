@@ -84,7 +84,8 @@ Goal: make the network flow usable and trustworthy.
 - signed session files
 - trusted device storage with `relay trust`
 - trusted restore guard with `restore --require-trusted`
-- TLS encryption
+- HTTPS listener mode
+- mutual TLS enforcement
 
 ## Phase 9: Project Quality
 

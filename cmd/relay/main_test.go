@@ -124,6 +124,24 @@ func TestListenAdvertiseRequiresIdentity(t *testing.T) {
 	}
 }
 
+func TestNewAdvertiseOptionsUsesHTTPSScheme(t *testing.T) {
+	identity, err := deviceidentity.New("test-mac", time.Now(), bytes.NewReader(bytes.Repeat([]byte{3}, 32)))
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	options, err := newAdvertiseOptions(identity, "0.0.0.0:8765", true)
+	if err != nil {
+		t.Fatalf("newAdvertiseOptions returned error: %v", err)
+	}
+	if options.Scheme != "https" {
+		t.Fatalf("scheme = %q, want https", options.Scheme)
+	}
+	if options.Fingerprint != identity.Fingerprint {
+		t.Fatalf("fingerprint = %q, want %q", options.Fingerprint, identity.Fingerprint)
+	}
+}
+
 func TestTerminalCommandWritesWorkspaceState(t *testing.T) {
 	repoRoot, _ := initGitRepo(t)
 	cwd := filepath.Join(repoRoot, "cmd", "relay")

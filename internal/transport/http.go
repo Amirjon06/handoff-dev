@@ -3,6 +3,7 @@ package transport
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,6 +39,17 @@ type Health struct {
 
 type Client struct {
 	HTTPClient *http.Client
+}
+
+func InsecureTLSClient() Client {
+	return Client{
+		HTTPClient: &http.Client{
+			Timeout: defaultHTTPClient.Timeout,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		},
+	}
 }
 
 func (c Client) Ping(ctx context.Context, target string) (Health, error) {

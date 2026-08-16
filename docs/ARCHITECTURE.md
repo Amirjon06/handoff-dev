@@ -34,6 +34,7 @@ The Go agent owns:
 - trusted-device fingerprint storage
 - trusted restore enforcement
 - mDNS device discovery
+- HTTPS listener mode
 - HTTP networking
 - restore orchestration
 

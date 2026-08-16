@@ -30,6 +30,7 @@ type AdvertiseOptions struct {
 	Name        string
 	Fingerprint string
 	Version     string
+	Scheme      string
 	Port        int
 }
 
@@ -133,7 +134,7 @@ func ParseTXT(fields []string) map[string]string {
 }
 
 func txtFields(options AdvertiseOptions) []string {
-	fields := []string{"scheme=http"}
+	fields := []string{"scheme=" + firstNonEmpty(options.Scheme, "http")}
 	if strings.TrimSpace(options.Name) != "" {
 		fields = append(fields, "name="+strings.TrimSpace(options.Name))
 	}
