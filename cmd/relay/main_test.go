@@ -16,6 +16,7 @@ import (
 	"github.com/Amirjon06/handoff-dev/internal/discovery"
 	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
+	"github.com/Amirjon06/handoff-dev/internal/history"
 	"github.com/Amirjon06/handoff-dev/internal/session"
 	"github.com/Amirjon06/handoff-dev/internal/terminalstate"
 	"github.com/Amirjon06/handoff-dev/internal/tlsidentity"
@@ -134,6 +135,82 @@ func TestListenRequireClientCertRequiresTLS(t *testing.T) {
 	if err.Error() != "listen --require-client-cert requires --tls" {
 		t.Fatalf("error = %q", err.Error())
 	}
+}
+
+func TestRecordingInboxStoresHistory(t *testing.T) {
+	inbox := t.TempDir()
+	historyPath := filepath.Join(t.TempDir(), "history.db")
+	receipt, err := recordingInbox{
+		files:       transport.FileInbox{Dir: inbox},
+		historyPath: historyPath,
+	}.Save(context.Background(), relayTestSession())
+	if err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+	if receipt.ID == "" {
+		t.Fatal("receipt id is empty")
+	}
+
+	store, err := history.Open(historyPath)
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	defer store.Close()
+	events, err := store.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("history event count = %d, want 1", len(events))
+	}
+	if events[0].ID != receipt.ID {
+		t.Fatalf("history id = %q, want %q", events[0].ID, receipt.ID)
+	}
+	if events[0].RepoName != "handoff-dev" {
+		t.Fatalf("history repo = %q", events[0].RepoName)
+	}
+}
+
+func TestHistoryCommandListsSessions(t *testing.T) {
+	historyPath := filepath.Join(t.TempDir(), "history.db")
+	store, err := history.Open(historyPath)
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	if err := store.Record(context.Background(), history.NewReceivedEvent("session-1", "/tmp/session-1.json", relayTestSession(), time.Date(2026, 8, 16, 18, 0, 0, 0, time.UTC))); err != nil {
+		t.Fatalf("Record returned error: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err = run(context.Background(), []string{"history", "--history", historyPath}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	got := stdout.String()
+	for _, want := range []string{
+		"History: " + historyPath,
+		"received session-1",
+		"  repo: handoff-dev",
+		"  branch: main",
+		"  commit: faaf307bf4fa",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("history output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func relayTestSession() session.Session {
+	return session.New("test-machine", gitstate.State{
+		Root:   "/repo/handoff-dev",
+		Name:   "handoff-dev",
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: "faaf307bf4fa86c316586804bf88f3096511aabd",
+	}, time.Date(2026, 8, 15, 18, 30, 0, 0, time.UTC))
 }
 
 func TestNewAdvertiseOptionsUsesHTTPSScheme(t *testing.T) {

@@ -130,7 +130,11 @@ func (c Client) Send(ctx context.Context, target string, captured session.Sessio
 	return receipt, nil
 }
 
-func Handler(inbox FileInbox) http.Handler {
+type Inbox interface {
+	Save(context.Context, session.Session) (Receipt, error)
+}
+
+func Handler(inbox Inbox) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(HealthPath, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -186,7 +190,7 @@ func (i FileInbox) Save(ctx context.Context, captured session.Session) (Receipt,
 	default:
 	}
 
-	dir := i.dir()
+	dir := i.Path()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return Receipt{}, fmt.Errorf("create inbox: %w", err)
 	}
@@ -227,7 +231,7 @@ func (i FileInbox) List(ctx context.Context) ([]InboxEntry, error) {
 	default:
 	}
 
-	dir := i.dir()
+	dir := i.Path()
 	files, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -275,7 +279,7 @@ func (i FileInbox) List(ctx context.Context) ([]InboxEntry, error) {
 	return entries, nil
 }
 
-func (i FileInbox) dir() string {
+func (i FileInbox) Path() string {
 	if strings.TrimSpace(i.Dir) == "" {
 		return filepath.Join(".staterelay", "inbox")
 	}

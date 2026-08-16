@@ -94,6 +94,7 @@ Goal: keep the project easy to verify and maintain.
 - GitHub Actions for Go tests
 - GitHub Actions for VS Code extension checks
 - release build scripts
+- SQLite-backed received-session history
 - installer packaging
 
 ## Phase 10: Broader Context
@@ -104,6 +105,6 @@ Goal: restore more of the user's working environment.
 - basic browser tab URL capture and restore
 - automatic browser tab reopening
 - richer terminal session restore
-- project history
+- richer project history
 - background service
 - simple desktop UI

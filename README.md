@@ -20,7 +20,7 @@ StateRelay currently captures and restores the core parts of a developer handoff
 - mDNS local device discovery
 - HTTPS listener mode with local identity certificates
 - Mutual TLS client certificate enforcement
-- Received session history through a local inbox
+- Received session history through a local inbox and SQLite database
 - Local-network transfer between two machines over HTTP
 
 The project goal is simple:
@@ -39,7 +39,7 @@ same cursor positions
 same unfinished work
 ```
 
-Future versions are planned to add automatic browser opening, device discovery, encrypted transfer, and a background agent.
+Future versions are planned to add automatic browser opening, richer pairing flow, and a background agent.
 
 ## Why It Exists
 
@@ -74,10 +74,11 @@ Think of it as Apple Handoff for developers, but across macOS, Windows, and Linu
 | Session signatures | Ed25519 | Detect tampered handoff files and identify the source device |
 | Device discovery | mDNS / DNS-SD | Find StateRelay listeners on the local network |
 | TLS | Go standard library | Serve local handoff traffic over HTTPS and require trusted client certificates |
+| History | SQLite | Keep a local index of received handoff sessions |
 | First transport | HTTP | Simple local-network transfer |
 | CI | GitHub Actions | Verify Go code, CLI builds, and extension checks |
 
-Planned areas include trusted-device pairing polish, SQLite-backed history, automatic browser restore, and a background agent.
+Planned areas include trusted-device pairing polish, automatic browser restore, richer terminal restore, and a background agent.
 
 ## Installation
 
@@ -146,6 +147,7 @@ go run ./cmd/relay listen --addr 0.0.0.0:8765 --inbox .staterelay/inbox --advert
 go run ./cmd/relay listen --addr 0.0.0.0:8765 --inbox .staterelay/inbox --advertise --tls --require-client-cert --path .
 go run ./cmd/relay devices --timeout 2s
 go run ./cmd/relay inbox --inbox .staterelay/inbox
+go run ./cmd/relay history --history .staterelay/history.db
 go run ./cmd/relay ping --to http://127.0.0.1:8765
 go run ./cmd/relay ping --to https://127.0.0.1:8765 --insecure-tls
 go run ./cmd/relay ping --to https://127.0.0.1:8765 --insecure-tls --client-cert --path .
@@ -156,7 +158,7 @@ go run ./cmd/relay send --to https://127.0.0.1:8765 --insecure-tls --client-cert
 
 Current capture output includes the Git repository root, repository name, origin remote, active branch, current commit, dirty working tree status, captured file snapshot details, editor state, terminal state, and browser state. Captured text snapshots include SHA-256 hashes for integrity checks, and restore plans show a short hash prefix for captured files. Use `--json` to produce the first StateRelay session artifact. If a local device identity exists, StateRelay signs the session JSON with Ed25519 and verifies that signature when the session is read later. StateRelay keeps its own `.staterelay` files out of captured Git changes so private identity and trust data are not transferred as project files. Use `relay terminal --path . --cwd DIR` to write `.staterelay/terminal-state.json` before capture. Use `relay browser --path . --url URL` to write `.staterelay/browser-state.json`; repeat `--url` to record multiple tabs. Use `relay identity --path .` to create or load a local Ed25519 device identity. Use `relay pair-code` to compare a short code with another device before adding its fingerprint to the trust store. Use `relay trust add` and `relay trust list` to maintain trusted device fingerprints in `.staterelay/trusted-devices.json`. Restore rejects malformed or unsafe session files before verifying that the target checkout branch and commit match. Use `restore --require-trusted` to refuse unsigned sessions or sessions signed by a device that is not in the local trust store. Use `restore --path` to validate a different checkout. Use `restore --clone-dir DIR` to clone a missing repository into that parent directory before validation. Use `restore --inbox DIR latest` to restore from the newest received handoff without copying the full JSON filename. Use `restore --apply --dry-run` to validate an apply without writing files. Use `restore --apply` to write captured text snapshots, editor state, terminal state, and browser state into a clean working tree; dirty destinations are rejected with the blocking file list by default, content hashes are checked before files are written, and uncaptured files are reported as skipped. Use `--conflict keep-both` to preserve a locally changed file and write the incoming version beside it with a `.staterelay-source` suffix.
 
-The first network handoff path is HTTP-based. `relay listen` accepts validated session JSON at `/sessions` and stores it in an inbox directory. Add `--advertise` to publish the listener over mDNS with the local device fingerprint. Add `--tls` to serve the listener over HTTPS using the local device identity. Add `--require-client-cert` to require a client certificate whose StateRelay fingerprint exists in the local trust store. `relay devices` searches for StateRelay listeners on the local network and prints their endpoints and fingerprints. `relay ping` checks that a listener is reachable before sending. `relay send` posts an existing session file to another StateRelay listener. Use `--client-cert --path .` with `ping` or `send` when talking to a listener that requires trusted client certificates. Use `--insecure-tls` only when testing against a self-signed local listener. `relay inbox` lists received sessions with the repo, branch, commit, dirty state, and changed-file count.
+The first network handoff path is HTTP-based. `relay listen` accepts validated session JSON at `/sessions`, stores the original JSON in an inbox directory, and records searchable metadata in `.staterelay/history.db`. Add `--advertise` to publish the listener over mDNS with the local device fingerprint. Add `--tls` to serve the listener over HTTPS using the local device identity. Add `--require-client-cert` to require a client certificate whose StateRelay fingerprint exists in the local trust store. `relay devices` searches for StateRelay listeners on the local network and prints their endpoints and fingerprints. `relay ping` checks that a listener is reachable before sending. `relay send` posts an existing session file to another StateRelay listener. Use `--client-cert --path .` with `ping` or `send` when talking to a listener that requires trusted client certificates. Use `--insecure-tls` only when testing against a self-signed local listener. `relay inbox` lists received session files with the repo, branch, commit, dirty state, and changed-file count. `relay history` lists the SQLite session history.
 
 `relay doctor` checks the local repository, inbox directory, and optionally a remote listener. It is useful before a handoff when setting up a second computer.
 
@@ -183,10 +185,11 @@ relay trust add --name NAME --fingerprint FINGERPRINT [--path PATH]
 relay trust list [--path PATH]
 relay trust remove --fingerprint FINGERPRINT [--path PATH]
 relay restore [--path PATH] [--clone-dir DIR] [--inbox DIR] [--apply] [--dry-run] [--conflict reject|keep-both] [--require-trusted] SESSION_FILE|latest
-relay listen [--addr ADDR] [--inbox DIR] [--advertise] [--tls] [--require-client-cert] [--path PATH]
+relay listen [--addr ADDR] [--inbox DIR] [--history DB] [--advertise] [--tls] [--require-client-cert] [--path PATH]
 relay devices [--timeout DURATION]
 relay inbox [--inbox DIR]
-relay doctor [--path PATH] [--inbox DIR] [--to URL]
+relay history [--history DB] [--limit N]
+relay doctor [--path PATH] [--inbox DIR] [--history DB] [--to URL]
 relay ping --to URL [--insecure-tls] [--client-cert] [--path PATH]
 relay send --to URL [--insecure-tls] [--client-cert] [--path PATH] SESSION_FILE
 relay version
@@ -236,7 +239,7 @@ Planned capture example:
 
 ## Development Status
 
-This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, signed session files, terminal working-directory capture, browser tab URL capture, local device identity generation, pair verification codes, trusted-device fingerprint storage, mDNS local device discovery, HTTPS listener support, mutual TLS client certificate enforcement, a VS Code extension that captures and restores editor state, an early network path for sending, listing, and restoring received session files, CI checks for both the Go code and extension, and release build scripts for common desktop platforms.
+This repository is being built step by step. The current version has a Go CLI for Git/session capture and restore safety, signed session files, terminal working-directory capture, browser tab URL capture, local device identity generation, pair verification codes, trusted-device fingerprint storage, mDNS local device discovery, HTTPS listener support, mutual TLS client certificate enforcement, SQLite-backed received-session history, a VS Code extension that captures and restores editor state, an early network path for sending, listing, and restoring received session files, CI checks for both the Go code and extension, and release build scripts for common desktop platforms.
 
 ## Roadmap
 
@@ -253,7 +256,7 @@ This repository is being built step by step. The current version has a Go CLI fo
 11. Add mDNS device discovery with `relay devices`.
 12. Add device pairing and trusted identities.
 13. Encrypt transfers with TLS.
-14. Persist sessions, devices, and transfer history in SQLite.
+14. Persist received session history in SQLite.
 15. Expand browser-tab handoff.
 16. Expand terminal-directory handoff.
 17. Support Linux alongside macOS and Windows.

@@ -23,6 +23,7 @@ import (
 	"github.com/Amirjon06/handoff-dev/internal/discovery"
 	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
+	"github.com/Amirjon06/handoff-dev/internal/history"
 	"github.com/Amirjon06/handoff-dev/internal/paircode"
 	"github.com/Amirjon06/handoff-dev/internal/session"
 	"github.com/Amirjon06/handoff-dev/internal/terminalstate"
@@ -66,6 +67,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runDevices(ctx, args[1:], stdout)
 	case "inbox":
 		return runInbox(ctx, args[1:], stdout)
+	case "history":
+		return runHistory(ctx, args[1:], stdout)
 	case "doctor":
 		return runDoctor(ctx, args[1:], stdout)
 	case "terminal":
@@ -375,6 +378,7 @@ func runDoctor(ctx context.Context, args []string, stdout io.Writer) error {
 
 	path := fs.String("path", ".", "project path to inspect")
 	inbox := fs.String("inbox", filepath.Join(".staterelay", "inbox"), "directory for received sessions")
+	historyPath := fs.String("history", history.Path("."), "SQLite history database path")
 	target := fs.String("to", "", "optional HTTP listener to check")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -401,6 +405,21 @@ func runDoctor(ctx context.Context, args []string, stdout io.Writer) error {
 	fmt.Fprintln(stdout, "Inbox: ok")
 	fmt.Fprintf(stdout, "  path: %s\n", *inbox)
 	fmt.Fprintf(stdout, "  sessions: %d\n", len(entries))
+	historyStore, err := history.Open(*historyPath)
+	if err != nil {
+		return fmt.Errorf("check history: %w", err)
+	}
+	historyCount, err := historyStore.Count(ctx)
+	closeErr := historyStore.Close()
+	if err != nil {
+		return fmt.Errorf("check history: %w", err)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close history: %w", closeErr)
+	}
+	fmt.Fprintln(stdout, "History: ok")
+	fmt.Fprintf(stdout, "  path: %s\n", *historyPath)
+	fmt.Fprintf(stdout, "  sessions: %d\n", historyCount)
 	identity, err := deviceidentity.Load(deviceidentity.Path(state.Root))
 	if err == nil {
 		fmt.Fprintln(stdout, "Identity: ok")
@@ -518,6 +537,7 @@ func runListen(ctx context.Context, args []string, stdout io.Writer) error {
 
 	addr := fs.String("addr", "127.0.0.1:8765", "HTTP listen address")
 	inbox := fs.String("inbox", filepath.Join(".staterelay", "inbox"), "directory for received sessions")
+	historyPath := fs.String("history", history.Path("."), "SQLite history database path")
 	advertise := fs.Bool("advertise", false, "publish this listener with mDNS")
 	tlsEnabled := fs.Bool("tls", false, "serve HTTPS with the local device identity")
 	requireClientCert := fs.Bool("require-client-cert", false, "require a trusted client certificate")
@@ -560,7 +580,7 @@ func runListen(ctx context.Context, args []string, stdout io.Writer) error {
 
 	server := &http.Server{
 		Addr:              *addr,
-		Handler:           transport.Handler(transport.FileInbox{Dir: *inbox}),
+		Handler:           transport.Handler(recordingInbox{files: transport.FileInbox{Dir: *inbox}, historyPath: *historyPath}),
 		ReadHeaderTimeout: 5 * time.Second,
 		TLSConfig:         tlsConfig,
 	}
@@ -577,6 +597,7 @@ func runListen(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "Listening on %s://%s\n", scheme, *addr)
 	fmt.Fprintf(stdout, "Inbox: %s\n", *inbox)
+	fmt.Fprintf(stdout, "History: %s\n", *historyPath)
 	if *advertise {
 		go func() {
 			_ = advertiseDevice(ctx, advertiseOptions)
@@ -596,6 +617,34 @@ func runListen(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	return nil
+}
+
+type recordingInbox struct {
+	files       transport.FileInbox
+	historyPath string
+}
+
+func (r recordingInbox) Save(ctx context.Context, captured session.Session) (transport.Receipt, error) {
+	receipt, err := r.files.Save(ctx, captured)
+	if err != nil {
+		return transport.Receipt{}, err
+	}
+	if strings.TrimSpace(r.historyPath) == "" {
+		return receipt, nil
+	}
+
+	store, err := history.Open(r.historyPath)
+	if err != nil {
+		return transport.Receipt{}, fmt.Errorf("open history: %w", err)
+	}
+	defer store.Close()
+
+	sessionPath := filepath.Join(r.files.Path(), receipt.ID+".json")
+	event := history.NewReceivedEvent(receipt.ID, sessionPath, captured, time.Now())
+	if err := store.Record(ctx, event); err != nil {
+		return transport.Receipt{}, fmt.Errorf("record history: %w", err)
+	}
+	return receipt, nil
 }
 
 func runDevices(ctx context.Context, args []string, stdout io.Writer) error {
@@ -783,6 +832,55 @@ func runInbox(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 		if captured.Browser != nil {
 			fmt.Fprintf(stdout, "  browser tabs: %d\n", len(captured.Browser.Tabs))
+		}
+	}
+	return nil
+}
+
+func runHistory(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("history", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	historyPath := fs.String("history", history.Path("."), "SQLite history database path")
+	limit := fs.Int("limit", 20, "maximum sessions to show")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("history does not accept positional arguments")
+	}
+	if *limit <= 0 {
+		return fmt.Errorf("history limit must be positive")
+	}
+
+	store, err := history.Open(*historyPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	events, err := store.List(ctx, *limit)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(stdout, "History: %s\n", *historyPath)
+	if len(events) == 0 {
+		fmt.Fprintln(stdout, "No sessions recorded")
+		return nil
+	}
+	for _, event := range events {
+		fmt.Fprintf(stdout, "%s %s %s\n", event.StoredAt.Format(time.RFC3339), event.Direction, event.ID)
+		fmt.Fprintf(stdout, "  repo: %s\n", event.RepoName)
+		fmt.Fprintf(stdout, "  branch: %s\n", event.RepoBranch)
+		fmt.Fprintf(stdout, "  commit: %s\n", shortHash(event.RepoCommit))
+		fmt.Fprintf(stdout, "  dirty: %t\n", event.Dirty)
+		fmt.Fprintf(stdout, "  changed files: %d\n", event.ChangedFiles)
+		if event.SignerFingerprint != "" {
+			fmt.Fprintf(stdout, "  signer: %s (%s)\n", event.SignerName, shortHash(event.SignerFingerprint))
+		}
+		if event.SessionPath != "" {
+			fmt.Fprintf(stdout, "  file: %s\n", event.SessionPath)
 		}
 	}
 	return nil
@@ -1337,10 +1435,11 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  relay capture [--path PATH] [--json] [--out FILE]")
 	fmt.Fprintln(w, "  relay restore [--path PATH] [--clone-dir DIR] [--inbox DIR] [--apply] [--dry-run] [--conflict reject|keep-both] [--require-trusted] SESSION_FILE|latest")
-	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR] [--advertise] [--tls] [--require-client-cert] [--path PATH]")
+	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR] [--history DB] [--advertise] [--tls] [--require-client-cert] [--path PATH]")
 	fmt.Fprintln(w, "  relay devices [--timeout DURATION]")
 	fmt.Fprintln(w, "  relay inbox [--inbox DIR]")
-	fmt.Fprintln(w, "  relay doctor [--path PATH] [--inbox DIR] [--to URL]")
+	fmt.Fprintln(w, "  relay history [--history DB] [--limit N]")
+	fmt.Fprintln(w, "  relay doctor [--path PATH] [--inbox DIR] [--history DB] [--to URL]")
 	fmt.Fprintln(w, "  relay terminal [--path PATH] [--cwd DIR]")
 	fmt.Fprintln(w, "  relay browser [--path PATH] --url URL [--url URL...]")
 	fmt.Fprintln(w, "  relay identity [--path PATH] [--name NAME]")
