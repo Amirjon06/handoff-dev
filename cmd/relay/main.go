@@ -8,14 +8,17 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Amirjon06/handoff-dev/internal/browserstate"
 	"github.com/Amirjon06/handoff-dev/internal/deviceidentity"
+	"github.com/Amirjon06/handoff-dev/internal/discovery"
 	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/paircode"
@@ -29,6 +32,8 @@ const version = "0.1.0-dev"
 
 var sendSession = transport.Client{}.Send
 var pingListener = transport.Client{}.Ping
+var advertiseDevice = discovery.Advertise
+var discoverDevices = discovery.Lookup
 
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout); err != nil {
@@ -54,6 +59,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runPing(ctx, args[1:], stdout)
 	case "listen":
 		return runListen(ctx, args[1:], stdout)
+	case "devices":
+		return runDevices(ctx, args[1:], stdout)
 	case "inbox":
 		return runInbox(ctx, args[1:], stdout)
 	case "doctor":
@@ -486,11 +493,21 @@ func runListen(ctx context.Context, args []string, stdout io.Writer) error {
 
 	addr := fs.String("addr", "127.0.0.1:8765", "HTTP listen address")
 	inbox := fs.String("inbox", filepath.Join(".staterelay", "inbox"), "directory for received sessions")
+	advertise := fs.Bool("advertise", false, "publish this listener with mDNS")
+	path := fs.String("path", ".", "workspace path for device identity when advertising")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
 		return fmt.Errorf("listen does not accept positional arguments")
+	}
+	var advertiseOptions discovery.AdvertiseOptions
+	if *advertise {
+		var err error
+		advertiseOptions, err = newAdvertiseOptions(ctx, *path, *addr)
+		if err != nil {
+			return err
+		}
 	}
 
 	server := &http.Server{
@@ -507,10 +524,95 @@ func runListen(ctx context.Context, args []string, stdout io.Writer) error {
 
 	fmt.Fprintf(stdout, "Listening on http://%s\n", *addr)
 	fmt.Fprintf(stdout, "Inbox: %s\n", *inbox)
+	if *advertise {
+		go func() {
+			_ = advertiseDevice(ctx, advertiseOptions)
+		}()
+		fmt.Fprintf(stdout, "Advertising as %s\n", advertiseOptions.Name)
+	}
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+func runDevices(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("devices", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	timeout := fs.Duration("timeout", 2*time.Second, "mDNS discovery timeout")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("devices does not accept positional arguments")
+	}
+	if *timeout <= 0 {
+		return fmt.Errorf("devices timeout must be positive")
+	}
+
+	devices, err := discoverDevices(ctx, *timeout)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Discovered devices: %d\n", len(devices))
+	if len(devices) == 0 {
+		fmt.Fprintln(stdout, "No StateRelay devices found")
+		return nil
+	}
+	for _, device := range devices {
+		fmt.Fprintf(stdout, "- %s\n", device.Name)
+		if device.Endpoint != "" {
+			fmt.Fprintf(stdout, "  endpoint: %s\n", device.Endpoint)
+		}
+		if device.Fingerprint != "" {
+			fmt.Fprintf(stdout, "  fingerprint: %s\n", device.Fingerprint)
+		}
+		if device.Version != "" {
+			fmt.Fprintf(stdout, "  version: %s\n", device.Version)
+		}
+	}
+	return nil
+}
+
+func newAdvertiseOptions(ctx context.Context, path string, addr string) (discovery.AdvertiseOptions, error) {
+	root, err := gitstate.Root(ctx, path)
+	if err != nil {
+		return discovery.AdvertiseOptions{}, fmt.Errorf("find workspace root: %w", err)
+	}
+	identity, err := deviceidentity.Load(deviceidentity.Path(root))
+	if os.IsNotExist(err) {
+		return discovery.AdvertiseOptions{}, fmt.Errorf("device identity missing; run relay identity --path %s first", root)
+	}
+	if err != nil {
+		return discovery.AdvertiseOptions{}, err
+	}
+	port, err := listenPort(addr)
+	if err != nil {
+		return discovery.AdvertiseOptions{}, err
+	}
+	return discovery.AdvertiseOptions{
+		Instance:    identity.Name,
+		Name:        identity.Name,
+		Fingerprint: identity.Fingerprint,
+		Version:     version,
+		Port:        port,
+	}, nil
+}
+
+func listenPort(addr string) (int, error) {
+	_, portText, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 0, fmt.Errorf("parse listen address %q: %w", addr, err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		return 0, fmt.Errorf("parse listen port %q: %w", portText, err)
+	}
+	if port <= 0 || port > 65535 {
+		return 0, fmt.Errorf("listen port must be between 1 and 65535")
+	}
+	return port, nil
 }
 
 func runInbox(ctx context.Context, args []string, stdout io.Writer) error {
@@ -1106,7 +1208,8 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  relay capture [--path PATH] [--json] [--out FILE]")
 	fmt.Fprintln(w, "  relay restore [--path PATH] [--clone-dir DIR] [--inbox DIR] [--apply] [--dry-run] [--conflict reject|keep-both] [--require-trusted] SESSION_FILE|latest")
-	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR]")
+	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR] [--advertise] [--path PATH]")
+	fmt.Fprintln(w, "  relay devices [--timeout DURATION]")
 	fmt.Fprintln(w, "  relay inbox [--inbox DIR]")
 	fmt.Fprintln(w, "  relay doctor [--path PATH] [--inbox DIR] [--to URL]")
 	fmt.Fprintln(w, "  relay terminal [--path PATH] [--cwd DIR]")

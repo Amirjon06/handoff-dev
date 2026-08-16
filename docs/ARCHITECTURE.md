@@ -33,6 +33,7 @@ The Go agent owns:
 - pair verification codes
 - trusted-device fingerprint storage
 - trusted restore enforcement
+- mDNS device discovery
 - HTTP networking
 - restore orchestration
 

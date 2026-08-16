@@ -13,6 +13,7 @@ import (
 
 	"github.com/Amirjon06/handoff-dev/internal/browserstate"
 	"github.com/Amirjon06/handoff-dev/internal/deviceidentity"
+	"github.com/Amirjon06/handoff-dev/internal/discovery"
 	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/session"
@@ -42,6 +43,84 @@ func TestUnknownCommand(t *testing.T) {
 	err := run(context.Background(), []string{"nope"}, &stdout)
 	if err == nil {
 		t.Fatal("run returned nil error for unknown command")
+	}
+}
+
+func TestDevicesCommandPrintsDiscoveredDevices(t *testing.T) {
+	oldDiscoverDevices := discoverDevices
+	t.Cleanup(func() { discoverDevices = oldDiscoverDevices })
+	discoverDevices = func(ctx context.Context, timeout time.Duration) ([]discovery.Device, error) {
+		if timeout != 1500*time.Millisecond {
+			t.Fatalf("timeout = %s", timeout)
+		}
+		return []discovery.Device{
+			{
+				Name:        "windows-pc",
+				Endpoint:    "http://192.168.1.25:8765",
+				Fingerprint: testFingerprint,
+				Version:     version,
+			},
+		}, nil
+	}
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"devices", "--timeout", "1500ms"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"Discovered devices: 1",
+		"- windows-pc",
+		"  endpoint: http://192.168.1.25:8765",
+		"  fingerprint: " + testFingerprint,
+		"  version: " + version,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("devices output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestDevicesCommandPrintsEmptyState(t *testing.T) {
+	oldDiscoverDevices := discoverDevices
+	t.Cleanup(func() { discoverDevices = oldDiscoverDevices })
+	discoverDevices = func(ctx context.Context, timeout time.Duration) ([]discovery.Device, error) {
+		return nil, nil
+	}
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"devices"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "No StateRelay devices found") {
+		t.Fatalf("devices output missing empty state:\n%s", stdout.String())
+	}
+}
+
+func TestDevicesCommandRejectsBadTimeout(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"devices", "--timeout", "0s"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error with bad timeout")
+	}
+	if err.Error() != "devices timeout must be positive" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestListenAdvertiseRequiresIdentity(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"listen", "--advertise", "--path", repoRoot}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error without identity")
+	}
+	if !strings.Contains(err.Error(), "device identity missing") {
+		t.Fatalf("error = %q", err.Error())
 	}
 }
 

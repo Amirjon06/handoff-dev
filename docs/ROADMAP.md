@@ -78,7 +78,7 @@ Goal: protect destination changes.
 Goal: make the network flow usable and trustworthy.
 
 - `relay devices`
-- mDNS discovery
+- mDNS discovery through advertised listeners
 - local Ed25519 device identity
 - verification codes with `relay pair-code`
 - signed session files
