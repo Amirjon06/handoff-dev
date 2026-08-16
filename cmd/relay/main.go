@@ -379,16 +379,46 @@ func runTerminal(ctx context.Context, args []string, stdout io.Writer) error {
 
 	path := fs.String("path", ".", "workspace path")
 	cwd := fs.String("cwd", "", "terminal working directory to record")
+	restore := fs.Bool("restore", false, "restore recorded terminal directories")
+	shell := fs.Bool("shell", false, "print shell commands for restored directories")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
 		return fmt.Errorf("terminal does not accept positional arguments")
 	}
+	if *shell && !*restore {
+		return fmt.Errorf("terminal --shell requires --restore")
+	}
+	if *restore && strings.TrimSpace(*cwd) != "" {
+		return fmt.Errorf("terminal --restore cannot be combined with --cwd")
+	}
 
 	root, err := gitstate.Root(ctx, *path)
 	if err != nil {
 		return fmt.Errorf("find workspace root: %w", err)
+	}
+	if *restore {
+		state, err := terminalstate.ReadWorkspace(root)
+		if err != nil {
+			return err
+		}
+		if state == nil {
+			return fmt.Errorf("terminal state missing; run relay terminal --cwd DIR first")
+		}
+		dirs, err := terminalstate.ResolveDirectories(root, state)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Terminal directories: %d\n", len(dirs))
+		for _, dir := range dirs {
+			if *shell {
+				fmt.Fprintf(stdout, "cd %s\n", shellQuote(dir))
+				continue
+			}
+			fmt.Fprintf(stdout, "Directory: %s\n", dir)
+		}
+		return nil
 	}
 	state, err := terminalstate.Capture(root, *cwd, time.Now())
 	if err != nil {
@@ -1442,6 +1472,10 @@ func shortHash(hash string) string {
 	return hash[:12]
 }
 
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
 func safePath(root string, path string) (string, bool) {
 	cleanPath := filepath.Clean(path)
 	if filepath.IsAbs(cleanPath) || cleanPath == ".." || strings.HasPrefix(cleanPath, "../") {
@@ -1472,6 +1506,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  relay history [--history DB] [--limit N]")
 	fmt.Fprintln(w, "  relay doctor [--path PATH] [--inbox DIR] [--history DB] [--to URL]")
 	fmt.Fprintln(w, "  relay terminal [--path PATH] [--cwd DIR]")
+	fmt.Fprintln(w, "  relay terminal [--path PATH] --restore [--shell]")
 	fmt.Fprintln(w, "  relay browser [--path PATH] --url URL [--url URL...]")
 	fmt.Fprintln(w, "  relay browser [--path PATH] --restore [--open]")
 	fmt.Fprintln(w, "  relay identity [--path PATH] [--name NAME]")

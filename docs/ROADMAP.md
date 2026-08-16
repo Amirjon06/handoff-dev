@@ -104,7 +104,7 @@ Goal: restore more of the user's working environment.
 - basic terminal working-directory capture and restore
 - basic browser tab URL capture and restore
 - browser tab reopening through the system browser
-- richer terminal session restore
+- terminal restore shell command output
 - richer project history
 - background service
 - simple desktop UI

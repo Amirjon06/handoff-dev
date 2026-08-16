@@ -116,6 +116,40 @@ func WriteWorkspace(root string, state *State) error {
 	return nil
 }
 
+func ResolveDirectories(root string, state *State) ([]string, error) {
+	if state == nil {
+		return nil, nil
+	}
+	if err := Validate(state); err != nil {
+		return nil, err
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace root: %w", err)
+	}
+	rootAbs, err = normalizePath(rootAbs)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace root: %w", err)
+	}
+	dirs := make([]string, 0, len(state.WorkingDirectories))
+	for _, dir := range state.WorkingDirectories {
+		path := filepath.Join(rootAbs, filepath.FromSlash(dir.Path))
+		normalized, err := normalizePath(path)
+		if err != nil {
+			return nil, fmt.Errorf("resolve terminal directory %s: %w", dir.Path, err)
+		}
+		rel, err := filepath.Rel(rootAbs, normalized)
+		if err != nil {
+			return nil, fmt.Errorf("relativize terminal directory %s: %w", dir.Path, err)
+		}
+		if !safePath(rel) {
+			return nil, fmt.Errorf("terminal directory %s resolves outside workspace %s", dir.Path, rootAbs)
+		}
+		dirs = append(dirs, normalized)
+	}
+	return dirs, nil
+}
+
 func ReadJSON(r io.Reader) (State, error) {
 	var state State
 	if err := json.NewDecoder(r).Decode(&state); err != nil {

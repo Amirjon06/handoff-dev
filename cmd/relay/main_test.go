@@ -318,6 +318,89 @@ func TestTerminalCommandWritesWorkspaceState(t *testing.T) {
 	}
 }
 
+func TestTerminalCommandRestoresRecordedDirectories(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	cmdDir := filepath.Join(repoRoot, "cmd", "relay")
+	if err := os.MkdirAll(cmdDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	wantRoot := normalizedPath(t, repoRoot)
+	wantCmdDir := normalizedPath(t, cmdDir)
+	state := &terminalstate.State{
+		SchemaVersion: terminalstate.SchemaVersion,
+		CapturedAt:    "2026-08-16T18:00:00Z",
+		WorkingDirectories: []terminalstate.Directory{
+			{Path: "."},
+			{Path: "cmd/relay"},
+		},
+	}
+	if err := terminalstate.WriteWorkspace(repoRoot, state); err != nil {
+		t.Fatalf("WriteWorkspace returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"terminal", "--path", repoRoot, "--restore"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	got := stdout.String()
+	for _, want := range []string{
+		"Terminal directories: 2",
+		"Directory: " + wantRoot,
+		"Directory: " + wantCmdDir,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("terminal restore output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestTerminalCommandPrintsShellRestoreCommands(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	state := &terminalstate.State{
+		SchemaVersion: terminalstate.SchemaVersion,
+		CapturedAt:    "2026-08-16T18:00:00Z",
+		WorkingDirectories: []terminalstate.Directory{
+			{Path: "."},
+		},
+	}
+	if err := terminalstate.WriteWorkspace(repoRoot, state); err != nil {
+		t.Fatalf("WriteWorkspace returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"terminal", "--path", repoRoot, "--restore", "--shell"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	want := "cd " + shellQuote(normalizedPath(t, repoRoot))
+	if !strings.Contains(stdout.String(), want) {
+		t.Fatalf("terminal shell output missing %q:\n%s", want, stdout.String())
+	}
+}
+
+func TestTerminalCommandRejectsShellWithoutRestore(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"terminal", "--shell"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error with --shell without --restore")
+	}
+	if err.Error() != "terminal --shell requires --restore" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestTerminalCommandRejectsRestoreWithCWD(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"terminal", "--restore", "--cwd", "."}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error with --restore and --cwd")
+	}
+	if err.Error() != "terminal --restore cannot be combined with --cwd" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestTerminalCommandRejectsPositionals(t *testing.T) {
 	var stdout bytes.Buffer
 	err := run(context.Background(), []string{"terminal", "extra"}, &stdout)
@@ -1889,6 +1972,16 @@ func initGitRepo(t *testing.T) (string, string) {
 	commit := strings.TrimSpace(runGit(t, dir, "rev-parse", "HEAD"))
 
 	return dir, commit
+}
+
+func normalizedPath(t *testing.T, path string) string {
+	t.Helper()
+
+	normalized, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("EvalSymlinks returned error: %v", err)
+	}
+	return normalized
 }
 
 func assertChangedFile(t *testing.T, files []gitstate.ChangedFile, path string, status string) {

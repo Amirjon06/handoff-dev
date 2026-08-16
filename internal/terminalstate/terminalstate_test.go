@@ -68,6 +68,67 @@ func TestWorkspaceRoundTrip(t *testing.T) {
 	}
 }
 
+func TestResolveDirectoriesReturnsAbsolutePaths(t *testing.T) {
+	root := t.TempDir()
+	cmdDir := filepath.Join(root, "cmd", "relay")
+	if err := os.MkdirAll(cmdDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	state := &State{
+		SchemaVersion: SchemaVersion,
+		CapturedAt:    "2026-08-15T21:00:00Z",
+		WorkingDirectories: []Directory{
+			{Path: "."},
+			{Path: "cmd/relay"},
+		},
+	}
+
+	dirs, err := ResolveDirectories(root, state)
+	if err != nil {
+		t.Fatalf("ResolveDirectories returned error: %v", err)
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatalf("EvalSymlinks root returned error: %v", err)
+	}
+	cmdDir, err = filepath.EvalSymlinks(cmdDir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks cmdDir returned error: %v", err)
+	}
+	if len(dirs) != 2 {
+		t.Fatalf("dir count = %d, want 2", len(dirs))
+	}
+	if dirs[0] != root {
+		t.Fatalf("first dir = %q, want %q", dirs[0], root)
+	}
+	if dirs[1] != cmdDir {
+		t.Fatalf("second dir = %q, want %q", dirs[1], cmdDir)
+	}
+}
+
+func TestResolveDirectoriesRejectsSymlinkOutsideWorkspace(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "outside")); err != nil {
+		t.Skipf("Symlink returned error: %v", err)
+	}
+	state := &State{
+		SchemaVersion: SchemaVersion,
+		CapturedAt:    "2026-08-15T21:00:00Z",
+		WorkingDirectories: []Directory{
+			{Path: "outside"},
+		},
+	}
+
+	_, err := ResolveDirectories(root, state)
+	if err == nil {
+		t.Fatal("ResolveDirectories returned nil error for symlink outside workspace")
+	}
+	if !strings.Contains(err.Error(), "resolves outside workspace") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestReadWorkspaceReturnsNilWhenMissing(t *testing.T) {
 	state, err := ReadWorkspace(t.TempDir())
 	if err != nil {

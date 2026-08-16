@@ -56,6 +56,12 @@ Browser support owns:
 
 The current Go CLI records browser tab URLs with `relay browser --url` and reopens them with `relay browser --restore --open`.
 
+Terminal support owns:
+
+- workspace-relative working-directory capture
+- absolute directory resolution during restore
+- shell command output for reopening terminal context
+
 ## MVP Boundary
 
 Version `0.1` proves this loop:
