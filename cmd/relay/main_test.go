@@ -204,6 +204,53 @@ func TestHistoryCommandListsSessions(t *testing.T) {
 	}
 }
 
+func TestHistoryCommandShowsSession(t *testing.T) {
+	historyPath := filepath.Join(t.TempDir(), "history.db")
+	store, err := history.Open(historyPath)
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	if err := store.Record(context.Background(), history.NewReceivedEvent("session-1", "/tmp/session-1.json", relayTestSession(), time.Date(2026, 8, 16, 18, 0, 0, 0, time.UTC))); err != nil {
+		t.Fatalf("Record returned error: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err = run(context.Background(), []string{"history", "show", "--history", historyPath, "session-1"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	got := stdout.String()
+	for _, want := range []string{
+		"History session: session-1",
+		"Direction: received",
+		"Repository: handoff-dev",
+		"  remote: https://github.com/Amirjon06/handoff-dev.git",
+		"  branch: main",
+		"  commit: faaf307bf4fa",
+		"File: /tmp/session-1.json",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("history show output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestHistoryCommandShowReportsMissingSession(t *testing.T) {
+	historyPath := filepath.Join(t.TempDir(), "history.db")
+	var stdout bytes.Buffer
+
+	err := run(context.Background(), []string{"history", "show", "--history", historyPath, "missing"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error for missing history session")
+	}
+	if err.Error() != `history session "missing" was not found` {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func relayTestSession() session.Session {
 	return session.New("test-machine", gitstate.State{
 		Root:   "/repo/handoff-dev",

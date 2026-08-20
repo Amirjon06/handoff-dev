@@ -3,6 +3,7 @@ package history
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -190,48 +191,53 @@ LIMIT ?`, limit)
 
 	var events []Event
 	for rows.Next() {
-		var event Event
-		var storedAt string
-		var capturedAt string
-		var dirty int
-		if err := rows.Scan(
-			&event.ID,
-			&event.Direction,
-			&event.SessionPath,
-			&storedAt,
-			&capturedAt,
-			&event.SourceHostname,
-			&event.RepoName,
-			&event.RepoRemote,
-			&event.RepoBranch,
-			&event.RepoCommit,
-			&dirty,
-			&event.ChangedFiles,
-			&event.EditorFiles,
-			&event.TerminalDirs,
-			&event.BrowserTabs,
-			&event.SignerName,
-			&event.SignerFingerprint,
-		); err != nil {
+		event, err := scanEvent(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan session history: %w", err)
 		}
-		parsedStoredAt, err := parseTime(storedAt)
-		if err != nil {
-			return nil, fmt.Errorf("parse stored_at for %s: %w", event.ID, err)
-		}
-		parsedCapturedAt, err := parseTime(capturedAt)
-		if err != nil {
-			return nil, fmt.Errorf("parse captured_at for %s: %w", event.ID, err)
-		}
-		event.StoredAt = parsedStoredAt
-		event.CapturedAt = parsedCapturedAt
-		event.Dirty = dirty != 0
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read session history: %w", err)
 	}
 	return events, nil
+}
+
+func (s *Store) Get(ctx context.Context, id string) (Event, bool, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return Event{}, false, fmt.Errorf("history id is required")
+	}
+
+	row := s.db.QueryRowContext(ctx, `
+SELECT
+	id,
+	direction,
+	session_path,
+	stored_at,
+	captured_at,
+	source_hostname,
+	repo_name,
+	repo_remote,
+	repo_branch,
+	repo_commit,
+	dirty,
+	changed_files,
+	editor_files,
+	terminal_dirs,
+	browser_tabs,
+	signer_name,
+	signer_fingerprint
+FROM session_history
+WHERE id = ?`, id)
+	event, err := scanEvent(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Event{}, false, nil
+	}
+	if err != nil {
+		return Event{}, false, fmt.Errorf("get session history: %w", err)
+	}
+	return event, true, nil
 }
 
 func (s *Store) Count(ctx context.Context) (int, error) {
@@ -288,4 +294,48 @@ func boolInt(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+type eventScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanEvent(scanner eventScanner) (Event, error) {
+	var event Event
+	var storedAt string
+	var capturedAt string
+	var dirty int
+	if err := scanner.Scan(
+		&event.ID,
+		&event.Direction,
+		&event.SessionPath,
+		&storedAt,
+		&capturedAt,
+		&event.SourceHostname,
+		&event.RepoName,
+		&event.RepoRemote,
+		&event.RepoBranch,
+		&event.RepoCommit,
+		&dirty,
+		&event.ChangedFiles,
+		&event.EditorFiles,
+		&event.TerminalDirs,
+		&event.BrowserTabs,
+		&event.SignerName,
+		&event.SignerFingerprint,
+	); err != nil {
+		return Event{}, err
+	}
+	parsedStoredAt, err := parseTime(storedAt)
+	if err != nil {
+		return Event{}, fmt.Errorf("parse stored_at for %s: %w", event.ID, err)
+	}
+	parsedCapturedAt, err := parseTime(capturedAt)
+	if err != nil {
+		return Event{}, fmt.Errorf("parse captured_at for %s: %w", event.ID, err)
+	}
+	event.StoredAt = parsedStoredAt
+	event.CapturedAt = parsedCapturedAt
+	event.Dirty = dirty != 0
+	return event, nil
 }

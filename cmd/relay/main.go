@@ -967,6 +967,18 @@ func runInbox(ctx context.Context, args []string, stdout io.Writer) error {
 }
 
 func runHistory(ctx context.Context, args []string, stdout io.Writer) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "show":
+			return runHistoryShow(ctx, args[1:], stdout)
+		case "list":
+			return runHistoryList(ctx, args[1:], stdout)
+		}
+	}
+	return runHistoryList(ctx, args, stdout)
+}
+
+func runHistoryList(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("history", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 
@@ -1011,6 +1023,55 @@ func runHistory(ctx context.Context, args []string, stdout io.Writer) error {
 		if event.SessionPath != "" {
 			fmt.Fprintf(stdout, "  file: %s\n", event.SessionPath)
 		}
+	}
+	return nil
+}
+
+func runHistoryShow(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("history show", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	historyPath := fs.String("history", history.Path("."), "SQLite history database path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("history show requires a session id")
+	}
+
+	store, err := history.Open(*historyPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	event, ok, err := store.Get(ctx, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("history session %q was not found", fs.Arg(0))
+	}
+
+	fmt.Fprintf(stdout, "History session: %s\n", event.ID)
+	fmt.Fprintf(stdout, "Direction: %s\n", event.Direction)
+	fmt.Fprintf(stdout, "Stored at: %s\n", event.StoredAt.Format(time.RFC3339))
+	fmt.Fprintf(stdout, "Captured at: %s\n", event.CapturedAt.Format(time.RFC3339))
+	fmt.Fprintf(stdout, "Source: %s\n", event.SourceHostname)
+	fmt.Fprintf(stdout, "Repository: %s\n", event.RepoName)
+	fmt.Fprintf(stdout, "  remote: %s\n", event.RepoRemote)
+	fmt.Fprintf(stdout, "  branch: %s\n", event.RepoBranch)
+	fmt.Fprintf(stdout, "  commit: %s\n", shortHash(event.RepoCommit))
+	fmt.Fprintf(stdout, "  dirty: %t\n", event.Dirty)
+	fmt.Fprintf(stdout, "Changed files: %d\n", event.ChangedFiles)
+	fmt.Fprintf(stdout, "Editor files: %d\n", event.EditorFiles)
+	fmt.Fprintf(stdout, "Terminal directories: %d\n", event.TerminalDirs)
+	fmt.Fprintf(stdout, "Browser tabs: %d\n", event.BrowserTabs)
+	if event.SignerFingerprint != "" {
+		fmt.Fprintf(stdout, "Signer: %s (%s)\n", event.SignerName, shortHash(event.SignerFingerprint))
+	}
+	if event.SessionPath != "" {
+		fmt.Fprintf(stdout, "File: %s\n", event.SessionPath)
 	}
 	return nil
 }
@@ -1572,6 +1633,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  relay devices [--timeout DURATION]")
 	fmt.Fprintln(w, "  relay inbox [--inbox DIR]")
 	fmt.Fprintln(w, "  relay history [--history DB] [--limit N]")
+	fmt.Fprintln(w, "  relay history show [--history DB] SESSION_ID")
 	fmt.Fprintln(w, "  relay doctor [--path PATH] [--inbox DIR] [--history DB] [--to URL]")
 	fmt.Fprintln(w, "  relay terminal [--path PATH] [--cwd DIR]")
 	fmt.Fprintln(w, "  relay terminal [--path PATH] --restore [--shell]")

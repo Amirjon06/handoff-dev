@@ -108,6 +108,49 @@ func TestStoreCountReturnsSessionCount(t *testing.T) {
 	}
 }
 
+func TestStoreGetsReceivedSessionByID(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	defer store.Close()
+
+	event := NewReceivedEvent("session-1", "/tmp/session-1.json", testSession(), time.Now())
+	if err := store.Record(context.Background(), event); err != nil {
+		t.Fatalf("Record returned error: %v", err)
+	}
+
+	got, ok, err := store.Get(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if !ok {
+		t.Fatal("Get did not find session-1")
+	}
+	if got.ID != "session-1" {
+		t.Fatalf("id = %q", got.ID)
+	}
+	if got.SessionPath != "/tmp/session-1.json" {
+		t.Fatalf("session path = %q", got.SessionPath)
+	}
+}
+
+func TestStoreGetReturnsFalseForMissingSession(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	defer store.Close()
+
+	_, ok, err := store.Get(context.Background(), "missing")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if ok {
+		t.Fatal("Get found missing session")
+	}
+}
+
 func testSession() session.Session {
 	activeFile := "main.go"
 	return session.Session{
