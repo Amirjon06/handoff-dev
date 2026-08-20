@@ -1162,6 +1162,7 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	path := fs.String("path", "", "project path to restore into")
 	cloneDir := fs.String("clone-dir", "", "clone missing repository into this parent directory")
 	inbox := fs.String("inbox", "", "directory for received sessions; use latest as the session name")
+	historyPath := fs.String("history", "", "SQLite history database path; restore the matching session id")
 	conflict := fs.String("conflict", "reject", "conflict strategy: reject or keep-both")
 	requireTrusted := fs.Bool("require-trusted", false, "require the session signer to exist in the local trust store")
 
@@ -1171,12 +1172,15 @@ func runRestore(ctx context.Context, args []string, stdout io.Writer) error {
 	if *conflict != "reject" && *conflict != "keep-both" {
 		return fmt.Errorf("unknown conflict strategy %q", *conflict)
 	}
+	if *historyPath != "" && *inbox != "" {
+		return fmt.Errorf("restore cannot use --history and --inbox together")
+	}
 
 	if fs.NArg() != 1 {
 		return fmt.Errorf("restore requires a session JSON file")
 	}
 
-	sessionPath, err := resolveRestoreSession(ctx, fs.Arg(0), *inbox)
+	sessionPath, err := resolveRestoreSession(ctx, fs.Arg(0), *inbox, *historyPath)
 	if err != nil {
 		return err
 	}
@@ -1336,7 +1340,10 @@ func safeRepoName(name string) bool {
 	return filepath.Clean(name) == name
 }
 
-func resolveRestoreSession(ctx context.Context, name string, inbox string) (string, error) {
+func resolveRestoreSession(ctx context.Context, name string, inbox string, historyPath string) (string, error) {
+	if historyPath != "" {
+		return resolveHistorySession(ctx, historyPath, name)
+	}
 	if inbox == "" && name != "latest" {
 		return name, nil
 	}
@@ -1362,6 +1369,26 @@ func resolveRestoreSession(ctx context.Context, name string, inbox string) (stri
 		}
 	}
 	return "", fmt.Errorf("received session %s not found in %s", name, inboxDir)
+}
+
+func resolveHistorySession(ctx context.Context, historyPath string, id string) (string, error) {
+	store, err := history.Open(historyPath)
+	if err != nil {
+		return "", err
+	}
+	defer store.Close()
+
+	event, ok, err := store.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("history session %q was not found", id)
+	}
+	if strings.TrimSpace(event.SessionPath) == "" {
+		return "", fmt.Errorf("history session %q has no session file path", id)
+	}
+	return event.SessionPath, nil
 }
 
 func readSessionFile(path string) (session.Session, error) {
@@ -1628,7 +1655,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  relay capture [--path PATH] [--json] [--out FILE]")
-	fmt.Fprintln(w, "  relay restore [--path PATH] [--clone-dir DIR] [--inbox DIR] [--apply] [--dry-run] [--conflict reject|keep-both] [--require-trusted] SESSION_FILE|latest")
+	fmt.Fprintln(w, "  relay restore [--path PATH] [--clone-dir DIR] [--inbox DIR] [--history DB] [--apply] [--dry-run] [--conflict reject|keep-both] [--require-trusted] SESSION_FILE|latest|SESSION_ID")
 	fmt.Fprintln(w, "  relay listen [--addr ADDR] [--inbox DIR] [--history DB] [--advertise] [--tls] [--require-client-cert] [--path PATH]")
 	fmt.Fprintln(w, "  relay devices [--timeout DURATION]")
 	fmt.Fprintln(w, "  relay inbox [--inbox DIR]")

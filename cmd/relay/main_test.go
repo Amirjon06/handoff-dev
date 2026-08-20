@@ -1529,6 +1529,75 @@ func TestRestoreUsesNamedInboxSession(t *testing.T) {
 	}
 }
 
+func TestRestoreUsesHistorySession(t *testing.T) {
+	repoRoot, commit := initGitRepo(t)
+	sessionPath := filepath.Join(t.TempDir(), "received.json")
+	captured := session.New("test-machine", gitstate.State{
+		Root:   "/source/history",
+		Name:   "staterelay",
+		Remote: "https://github.com/Amirjon06/handoff-dev.git",
+		Branch: "main",
+		Commit: commit,
+	}, time.Date(2026, 8, 15, 20, 0, 0, 0, time.UTC))
+	writeSessionFileAt(t, sessionPath, captured)
+
+	historyPath := filepath.Join(t.TempDir(), "history.db")
+	store, err := history.Open(historyPath)
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	if err := store.Record(context.Background(), history.NewReceivedEvent("session-1", sessionPath, captured, time.Date(2026, 8, 15, 21, 0, 0, 0, time.UTC))); err != nil {
+		t.Fatalf("Record returned error: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err = run(context.Background(), []string{"restore", "--path", repoRoot, "--history", historyPath, "session-1"}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	got := stdout.String()
+	for _, want := range []string{
+		"Session file: " + sessionPath,
+		"Git root: /source/history",
+		"Git name: staterelay",
+		"Git commit: " + commit,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("restore output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRestoreRejectsMissingHistorySession(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	historyPath := filepath.Join(t.TempDir(), "history.db")
+	var stdout bytes.Buffer
+
+	err := run(context.Background(), []string{"restore", "--path", repoRoot, "--history", historyPath, "missing"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error for missing history session")
+	}
+	if err.Error() != `history session "missing" was not found` {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestRestoreRejectsInboxWithHistory(t *testing.T) {
+	var stdout bytes.Buffer
+
+	err := run(context.Background(), []string{"restore", "--inbox", t.TempDir(), "--history", filepath.Join(t.TempDir(), "history.db"), "session-1"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error with inbox and history")
+	}
+	if err.Error() != "restore cannot use --history and --inbox together" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestRestoreRequireTrustedAcceptsTrustedSigner(t *testing.T) {
 	repoRoot, commit := initGitRepo(t)
 	path, identity := writeSignedTestSessionWithGit(t, repoRoot, gitstate.State{
