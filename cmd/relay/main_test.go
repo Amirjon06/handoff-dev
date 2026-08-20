@@ -17,6 +17,7 @@ import (
 	"github.com/Amirjon06/handoff-dev/internal/editorstate"
 	"github.com/Amirjon06/handoff-dev/internal/gitstate"
 	"github.com/Amirjon06/handoff-dev/internal/history"
+	"github.com/Amirjon06/handoff-dev/internal/paircode"
 	"github.com/Amirjon06/handoff-dev/internal/session"
 	"github.com/Amirjon06/handoff-dev/internal/terminalstate"
 	"github.com/Amirjon06/handoff-dev/internal/tlsidentity"
@@ -651,6 +652,96 @@ func TestPairCodeCommandRejectsPositionals(t *testing.T) {
 	}
 	if err.Error() != "pair-code does not accept positional arguments" {
 		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestPairCommandVerifiesCodeAndTrustsDevice(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	var identityOut bytes.Buffer
+	err := run(context.Background(), []string{"identity", "--path", repoRoot, "--name", "test-mac"}, &identityOut)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	identity, err := deviceidentity.Load(deviceidentity.Path(repoRoot))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	code, err := paircode.Code(identity.Fingerprint, testFingerprint)
+	if err != nil {
+		t.Fatalf("Code returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err = run(context.Background(), []string{"pair", "--path", repoRoot, "--name", "windows-pc", "--fingerprint", testFingerprint, "--code", code}, &stdout)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "Paired trusted device") {
+		t.Fatalf("stdout missing paired message:\n%s", stdout.String())
+	}
+
+	store, err := truststore.Load(truststore.Path(repoRoot))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(store.Devices) != 1 {
+		t.Fatalf("device count = %d, want 1", len(store.Devices))
+	}
+	if store.Devices[0].Name != "windows-pc" {
+		t.Fatalf("device name = %q", store.Devices[0].Name)
+	}
+	if store.Devices[0].Fingerprint != testFingerprint {
+		t.Fatalf("fingerprint = %q", store.Devices[0].Fingerprint)
+	}
+}
+
+func TestPairCommandRejectsWrongCode(t *testing.T) {
+	repoRoot, _ := initGitRepo(t)
+	var identityOut bytes.Buffer
+	err := run(context.Background(), []string{"identity", "--path", repoRoot, "--name", "test-mac"}, &identityOut)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err = run(context.Background(), []string{"pair", "--path", repoRoot, "--name", "windows-pc", "--fingerprint", testFingerprint, "--code", "000-000"}, &stdout)
+	if err == nil {
+		t.Fatal("run returned nil error for wrong code")
+	}
+	if err.Error() != "pair code does not match" {
+		t.Fatalf("error = %q", err.Error())
+	}
+	store, err := truststore.Load(truststore.Path(repoRoot))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(store.Devices) != 0 {
+		t.Fatalf("device count = %d, want 0", len(store.Devices))
+	}
+}
+
+func TestPairCommandRequiresFields(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "name", args: []string{"pair", "--fingerprint", testFingerprint, "--code", "123-456"}, want: "pair requires --name"},
+		{name: "fingerprint", args: []string{"pair", "--name", "windows-pc", "--code", "123-456"}, want: "pair requires --fingerprint"},
+		{name: "code", args: []string{"pair", "--name", "windows-pc", "--fingerprint", testFingerprint}, want: "pair requires --code"},
+		{name: "positionals", args: []string{"pair", "extra"}, want: "pair does not accept positional arguments"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout bytes.Buffer
+			err := run(context.Background(), tt.args, &stdout)
+			if err == nil {
+				t.Fatal("run returned nil error")
+			}
+			if err.Error() != tt.want {
+				t.Fatalf("error = %q, want %q", err.Error(), tt.want)
+			}
+		})
 	}
 }
 

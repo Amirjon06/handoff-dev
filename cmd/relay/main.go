@@ -78,6 +78,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return runBrowser(ctx, args[1:], stdout)
 	case "identity":
 		return runIdentity(ctx, args[1:], stdout)
+	case "pair":
+		return runPair(ctx, args[1:], stdout)
 	case "pair-code":
 		return runPairCode(ctx, args[1:], stdout)
 	case "trust":
@@ -91,6 +93,72 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runPair(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("pair", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	path := fs.String("path", ".", "workspace path")
+	name := fs.String("name", "", "peer device name")
+	fingerprint := fs.String("fingerprint", "", "peer device fingerprint")
+	code := fs.String("code", "", "pair verification code")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("pair does not accept positional arguments")
+	}
+	if strings.TrimSpace(*name) == "" {
+		return fmt.Errorf("pair requires --name")
+	}
+	if strings.TrimSpace(*fingerprint) == "" {
+		return fmt.Errorf("pair requires --fingerprint")
+	}
+	if strings.TrimSpace(*code) == "" {
+		return fmt.Errorf("pair requires --code")
+	}
+
+	root, err := gitstate.Root(ctx, *path)
+	if err != nil {
+		return fmt.Errorf("find workspace root: %w", err)
+	}
+	identity, err := deviceidentity.Load(deviceidentity.Path(root))
+	if os.IsNotExist(err) {
+		return fmt.Errorf("device identity missing; run relay identity --path %s first", root)
+	}
+	if err != nil {
+		return err
+	}
+	expectedCode, err := paircode.Code(identity.Fingerprint, *fingerprint)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(*code) != expectedCode {
+		return fmt.Errorf("pair code does not match")
+	}
+
+	storePath := truststore.Path(root)
+	store, err := truststore.Load(storePath)
+	if err != nil {
+		return err
+	}
+	store, added, err := truststore.Add(store, *name, *fingerprint, time.Now())
+	if err != nil {
+		return err
+	}
+	if err := truststore.Save(storePath, store); err != nil {
+		return err
+	}
+	if added {
+		fmt.Fprintln(stdout, "Paired trusted device")
+	} else {
+		fmt.Fprintln(stdout, "Updated trusted device")
+	}
+	fmt.Fprintf(stdout, "Name: %s\n", strings.TrimSpace(*name))
+	fmt.Fprintf(stdout, "Fingerprint: %s\n", strings.ToLower(strings.TrimSpace(*fingerprint)))
+	fmt.Fprintf(stdout, "Path: %s\n", storePath)
+	return nil
 }
 
 func runPairCode(ctx context.Context, args []string, stdout io.Writer) error {
@@ -1510,6 +1578,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  relay browser [--path PATH] --url URL [--url URL...]")
 	fmt.Fprintln(w, "  relay browser [--path PATH] --restore [--open]")
 	fmt.Fprintln(w, "  relay identity [--path PATH] [--name NAME]")
+	fmt.Fprintln(w, "  relay pair --name NAME --fingerprint FINGERPRINT --code CODE [--path PATH]")
 	fmt.Fprintln(w, "  relay pair-code --peer-fingerprint FINGERPRINT [--path PATH]")
 	fmt.Fprintln(w, "  relay trust add --name NAME --fingerprint FINGERPRINT [--path PATH]")
 	fmt.Fprintln(w, "  relay trust list [--path PATH]")
