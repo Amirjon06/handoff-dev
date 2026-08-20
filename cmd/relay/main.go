@@ -32,7 +32,7 @@ import (
 	"github.com/Amirjon06/handoff-dev/internal/truststore"
 )
 
-const version = "0.1.0-dev"
+const version = "0.1.0"
 
 var sendSession = transport.Client{}.Send
 var pingListener = transport.Client{}.Ping
