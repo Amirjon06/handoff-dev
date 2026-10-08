@@ -2,7 +2,7 @@
 
 A high-performance, secure, peer-to-peer workspace orchestration engine built in Go. 
 
-StateRelay atomizes and synchronizes ephemeral development environments across distinct physical machines. Instead of degrading productivity by manually committing unfinished work, StateRelay abstracts, packages, and cryptographically signs your entire runtime context—including Git state, dirty uncommitted files, IDE editor layouts, and terminal environments—and streams it securely over local networks.
+StateRelay captures and transfers your development workspace across distinct physical machines. Instead of degrading productivity by manually committing unfinished work, StateRelay abstracts, packages, and cryptographically signs your entire runtime context—including Git state, dirty uncommitted files, IDE editor layouts, and terminal environments—and streams it securely over local networks.
 
 ## Features
 
