@@ -1,10 +1,8 @@
 # StateRelay
 
-StateRelay is a cross-platform workspace handoff tool for developers.
+A high-performance, secure, peer-to-peer workspace orchestration engine built in Go. 
 
-It captures the working state around a Git repository and moves it to another machine: branch, commit, uncommitted file snapshots, editor context, terminal directories, browser URLs, and trusted device metadata.
-
-The goal is simple: switch computers without rebuilding your whole development context by hand.
+StateRelay atomizes and synchronizes ephemeral development environments across distinct physical machines. Instead of degrading productivity by manually committing unfinished work, StateRelay abstracts, packages, and cryptographically signs your entire runtime context—including Git state, dirty uncommitted files, IDE editor layouts, and terminal environments—and streams it securely over local networks.
 
 ## Features
 
@@ -20,15 +18,26 @@ The goal is simple: switch computers without rebuilding your whole development c
 - Terminal directory and browser URL capture
 - Dry-run restore and conflict protection
 
-## Tech Stack
+## Architectural & Security Blueprint
 
-- Go
-- TypeScript
-- Git
-- SQLite
-- mDNS
-- TLS / mutual TLS
-- GitHub Actions
+StateRelay is engineered as a decoupled, multi-component distributed system:
+
+* **Core Engine (Go):** Optimized CLI binary managing file system snapshots, compression, and network I/O.
+* **Peer-to-Peer Topology (mDNS):** Implements zero-configuration local service discovery using multicast DNS, eliminating the need for a centralized control plane.
+* **Zero-Trust Security Model:**
+  * **Transport:** Mutual TLS (mTLS) ensuring end-to-end encryption and cryptographic identity verification between local nodes.
+  * **Authentication:** Ed25519 public-key signatures validating session origins before execution.
+  * **Data Integrity:** Strict SHA-256 content hashing to prevent payload corruption or tampering during transit.
+* **State Management (SQLite):** Embedded transactional database capturing local handoff ledger history with strict ACID guarantees.
+* **Orchestration Layer (TypeScript):** Deep VS Code API integration to serialize and deserialize UI state, active buffers, and cursor positions.
+
+## Engineering Challenges & Deep Dives
+
+### 1. Atomic State Restoration & Conflict Resolution
+Restoring an uncommitted workspace onto a dirty target directory introduces the risk of state corruption. StateRelay resolves this by executing a multi-phase commit-like flow: evaluating local Git status, running dry-run differential checks, and implementing a strict `--conflict keep-both` isolation strategy to guarantee zero data loss.
+
+### 2. High-Performance File Serialization
+Streaming raw directory trees across local networks is bottlenecked by disk I/O and network overhead. StateRelay optimizes this by hashing file snapshots with SHA-256, indexing changes within a local SQLite instance, and only transmitting verified deltas.
 
 ## Install
 
